@@ -2276,6 +2276,7 @@ static int vfe32_proc_general(
 	uint32_t *cmdp_local = NULL;
 	uint32_t snapshot_cnt = 0;
 	uint32_t temp1 = 0, temp2 = 0;
+	uint32_t maxvalue = 0;
 	struct msm_camera_vfe_params_t vfe_params;
 
 	switch (cmd->id) {
@@ -2374,6 +2375,14 @@ static int vfe32_proc_general(
 				 __func__);
 			goto proc_general_done;
 		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2406,6 +2415,14 @@ static int vfe32_proc_general(
 		if (rc < 0) {
 			pr_err("%s: cannot config ping/pong address of AF",
 				__func__);
+			goto proc_general_done;
+		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
 			goto proc_general_done;
 		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
@@ -2442,6 +2459,14 @@ static int vfe32_proc_general(
 				 __func__);
 			goto proc_general_done;
 		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2470,6 +2495,14 @@ static int vfe32_proc_general(
 		if (rc < 0) {
 			pr_err("%s: cannot config ping/pong address of IHIST",
 				 __func__);
+			goto proc_general_done;
+		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
 			goto proc_general_done;
 		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
@@ -2503,6 +2536,14 @@ static int vfe32_proc_general(
 				__func__);
 			goto proc_general_done;
 		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2526,6 +2567,14 @@ static int vfe32_proc_general(
 		if (rc < 0) {
 			pr_err("%s: cannot config ping/pong address of CS",
 				__func__);
+			goto proc_general_done;
+		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
 			goto proc_general_done;
 		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
@@ -2590,6 +2639,14 @@ static int vfe32_proc_general(
 			VFE_STATS_CFG);
 		msm_camera_io_w(module_val,
 			vfe32_ctrl->share_ctrl->vfebase + VFE_MODULE_CFG);
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2628,6 +2685,10 @@ static int vfe32_proc_general(
 		new_val = *cmdp_local;
 		old_val &= MCE_EN_MASK;
 		new_val = new_val | old_val;
+		if (cmd->length < 4) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_CHROMA_SUP_OFF + 4, &new_val, 4);
@@ -2638,10 +2699,23 @@ static int vfe32_proc_general(
 		new_val = *cmdp_local;
 		old_val &= MCE_Q_K_MASK;
 		new_val = new_val | old_val;
+		if (cmd->length < (4 + sizeof(uint32_t)*1)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_CHROMA_SUP_OFF + 8, &new_val, 4);
 		cmdp_local += 1;
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < (vfe32_cmd[cmd->id].length +
+		sizeof(uint32_t) * (1 + 1))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			vfe32_cmd[cmd->id].offset,
@@ -2662,6 +2736,10 @@ static int vfe32_proc_general(
 			goto proc_general_done;
 		}
 		cmdp_local = cmdp;
+		if (cmd->length < 4) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(vfe32_ctrl->share_ctrl->vfebase +
 			V32_CHROMA_SUP_OFF, cmdp_local, 4);
 
@@ -2674,6 +2752,11 @@ static int vfe32_proc_general(
 			V32_CHROMA_SUP_OFF + 4);
 		old_val &= ~MCE_EN_MASK;
 		new_val = new_val | old_val;
+		/* As cmdp_local got incremented by 1*/
+		if (cmd->length < (4 + sizeof(uint32_t) * 1)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_CHROMA_SUP_OFF + 4, &new_val, 4);
@@ -2684,6 +2767,10 @@ static int vfe32_proc_general(
 		new_val = *cmdp_local;
 		old_val &= ~MCE_Q_K_MASK;
 		new_val = new_val | old_val;
+		if (cmd->length < (4 + sizeof(uint32_t) * (1 + 1)))	{
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_CHROMA_SUP_OFF + 8, &new_val, 4);
@@ -2705,12 +2792,22 @@ static int vfe32_proc_general(
 			goto proc_general_done;
 		}
 		cmdp_local = cmdp;
+		if (cmd->length < 16) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			vfe32_cmd[cmd->id].offset,
 			cmdp_local, 16);
 		cmdp_local += 4;
 		vfe32_program_dmi_cfg(ROLLOFF_RAM0_BANK0, vfe32_ctrl);
+		if (cmd->length < (sizeof(uint32_t) *
+		(4 + V32_MESH_ROLL_OFF_INIT_TABLE_SIZE * 2 +
+		V32_MESH_ROLL_OFF_DELTA_TABLE_SIZE * 2))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		/* for loop for extrcting init table. */
 		for (i = 0; i < (V32_MESH_ROLL_OFF_INIT_TABLE_SIZE * 2); i++) {
 			msm_camera_io_w(*cmdp_local ,
@@ -2774,6 +2871,14 @@ static int vfe32_proc_general(
 		}
 		break;
 	case VFE_CMD_LA_CFG:
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2814,6 +2919,11 @@ static int vfe32_proc_general(
 		cmdp_local = cmdp + 1;
 		old_val = msm_camera_io_r(
 			vfe32_ctrl->share_ctrl->vfebase + V32_LA_OFF);
+		if (cmd->length < (sizeof(uint32_t) * (1 +
+		(VFE32_LA_TABLE_LENGTH / 2)))) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		if (old_val != 0x0)
 			vfe32_write_la_cfg(LUMA_ADAPT_LUT_RAM_BANK0,
 				cmdp_local, vfe32_ctrl);
@@ -2862,6 +2972,10 @@ static int vfe32_proc_general(
 		break;
 	case VFE_CMD_SK_ENHAN_CFG:
 	case VFE_CMD_SK_ENHAN_UPDATE:{
+		if (cmd->length < V32_SCE_LEN) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -2896,17 +3010,31 @@ static int vfe32_proc_general(
 			goto proc_general_done;
 		}
 		cmdp_local = cmdp;
+		if (cmd->length < V32_LINEARIZATION_LEN1) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_LINEARIZATION_OFF1,
 			cmdp_local, V32_LINEARIZATION_LEN1);
 		cmdp_local += 4;
+		if (cmd->length < (V32_LINEARIZATION_LEN2 +
+		sizeof(uint32_t) * 4)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_LINEARIZATION_OFF2,
 			cmdp_local, V32_LINEARIZATION_LEN2);
 
 		cmdp_local = cmdp + 17;
+		if (cmd->length < (sizeof(uint32_t) *
+		(VFE32_LINEARIZATON_TABLE_LENGTH + 17))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		vfe32_write_linear_cfg(BLACK_LUT_RAM_BANK0,
 					cmdp_local, vfe32_ctrl);
 		break;
@@ -2924,11 +3052,20 @@ static int vfe32_proc_general(
 		}
 		cmdp_local = cmdp;
 		cmdp_local++;
+		if (cmd->length < V32_LINEARIZATION_LEN1) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_LINEARIZATION_OFF1 + 4,
 			cmdp_local, (V32_LINEARIZATION_LEN1 - 4));
 		cmdp_local += 3;
+		if (cmd->length < (V32_LINEARIZATION_LEN2 +
+		sizeof(uint32_t) * (1 + 3))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_LINEARIZATION_OFF2,
@@ -2939,6 +3076,11 @@ static int vfe32_proc_general(
 				vfe32_ctrl->share_ctrl->vfebase +
 				V32_LINEARIZATION_OFF1);
 
+		if (cmd->length < (sizeof(uint32_t) *
+		(VFE32_LINEARIZATON_TABLE_LENGTH + 17))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		if (old_val != 0x0)
 			vfe32_write_linear_cfg(BLACK_LUT_RAM_BANK0,
 						cmdp_local, vfe32_ctrl);
@@ -3085,11 +3227,24 @@ static int vfe32_proc_general(
 		new_val = new_val | old_val;
 		*cmdp_local = new_val;
 
+		if (cmd->length < 4) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase + V32_DEMOSAICV3_0_OFF,
 			cmdp_local, 4);
 
 		cmdp_local += 1;
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < (vfe32_cmd[cmd->id].length +
+		sizeof(uint32_t) * 1)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			vfe32_cmd[cmd->id].offset,
@@ -3119,10 +3274,23 @@ static int vfe32_proc_general(
 
 		new_val = new_val | old_val;
 		*cmdp_local = new_val;
+		if (cmd->length < 4) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase + V32_DEMOSAICV3_0_OFF,
 			cmdp_local, 4);
 		cmdp_local += 1;
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < (vfe32_cmd[cmd->id].length +
+		sizeof(uint32_t) * 1)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			vfe32_cmd[cmd->id].offset,
@@ -3151,9 +3319,18 @@ static int vfe32_proc_general(
 
 		new_val = new_val | old_val;
 		*cmdp_local = new_val;
+		if (cmd->length < V32_DEMOSAICV3_LEN) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(vfe32_ctrl->share_ctrl->vfebase +
 			V32_DEMOSAICV3_0_OFF,
 			cmdp_local, V32_DEMOSAICV3_LEN);
+		if (cmd->length < (V32_DEMOSAICV3_DBPC_LEN +
+		sizeof(uint32_t) * 4)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp_local += 1;
 		msm_camera_io_memcpy(vfe32_ctrl->share_ctrl->vfebase +
 			V32_DEMOSAICV3_DBPC_CFG_OFF,
@@ -3184,6 +3361,11 @@ static int vfe32_proc_general(
 			rc = -EFAULT;
 			goto proc_general_done;
 		}
+		if (cmd->length < (sizeof(uint32_t) * (1 +
+		VFE32_GAMMA_NUM_ENTRIES / 2))) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase + V32_RGB_G_OFF,
 			cmdp, 4);
@@ -3206,6 +3388,16 @@ static int vfe32_proc_general(
 			(void __user *)(cmd->value),
 			cmd->length)) {
 			rc = -EFAULT;
+			goto proc_general_done;
+		}
+		maxvalue = (VFE32_GAMMA_CH0_G_POS > VFE32_GAMMA_CH1_B_POS) ?
+		VFE32_GAMMA_CH0_G_POS : VFE32_GAMMA_CH1_B_POS;
+		maxvalue = (maxvalue > VFE32_GAMMA_CH2_R_POS) ?
+		maxvalue : VFE32_GAMMA_CH2_R_POS;
+
+		if (cmd->length < (sizeof(uint32_t) * (1 +
+		maxvalue + (VFE32_GAMMA_NUM_ENTRIES / 2)))) {
+			rc  = -EINVAL;
 			goto proc_general_done;
 		}
 		msm_camera_io_memcpy(
@@ -3237,6 +3429,17 @@ static int vfe32_proc_general(
 		old_val = msm_camera_io_r(
 			vfe32_ctrl->share_ctrl->vfebase + V32_RGB_G_OFF);
 			cmdp += 1;
+
+		maxvalue = (VFE32_GAMMA_CH0_G_POS > VFE32_GAMMA_CH1_B_POS) ?
+		VFE32_GAMMA_CH0_G_POS : VFE32_GAMMA_CH1_B_POS;
+		maxvalue = (maxvalue > VFE32_GAMMA_CH2_R_POS) ?
+		maxvalue : VFE32_GAMMA_CH2_R_POS;
+
+		if (cmd->length < (sizeof(uint32_t) * (1 +
+		maxvalue + (VFE32_GAMMA_NUM_ENTRIES / 2)))) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		if (old_val != 0x0) {
 			vfe32_write_gamma_cfg(RGBLUT_RAM_CH0_BANK0,
 				cmdp + VFE32_GAMMA_CH0_G_POS, vfe32_ctrl);
@@ -3272,6 +3475,11 @@ static int vfe32_proc_general(
 		old_val = msm_camera_io_r(
 			vfe32_ctrl->share_ctrl->vfebase + V32_RGB_G_OFF);
 		cmdp += 1;
+		if (cmd->length < (sizeof(uint32_t) * (1 + (
+		VFE32_GAMMA_NUM_ENTRIES / 2)))) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		if (old_val != 0x0) {
 			vfe32_write_gamma_cfg(
 				RGBLUT_RAM_CH0_BANK0, cmdp, vfe32_ctrl);
@@ -3443,10 +3651,24 @@ static int vfe32_proc_general(
 			rc = -EFAULT;
 			goto proc_general_done;
 		}
+		/* As cmdp gets incremented 7 times in function
+		vfe32_sync_timer_start() */
+		if (cmd->length < (sizeof(uint32_t) * 7)) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		vfe32_sync_timer_start(cmdp, vfe32_ctrl);
 		break;
 
 	case VFE_CMD_MODULE_CFG: {
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -3497,11 +3719,24 @@ static int vfe32_proc_general(
 			rc = -EFAULT;
 			goto proc_general_done;
 		}
+		if (cmd->id < 0 || cmd->id >= ARRAY_SIZE(vfe32_cmd)) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
+		if (cmd->length < vfe32_cmd[cmd->id].length) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			vfe32_cmd[cmd->id].offset,
 			cmdp, (vfe32_cmd[cmd->id].length));
 		cmdp_local = cmdp + V32_ASF_LEN/4;
+		if (cmd->length < (sizeof(uint32_t) * (V32_ASF_LEN / 4) +
+		V32_ASF_SPECIAL_EFX_CFG_LEN)) {
+			rc  = -EINVAL;
+			goto proc_general_done;
+		}
 		msm_camera_io_memcpy(
 			vfe32_ctrl->share_ctrl->vfebase +
 			V32_ASF_SPECIAL_EFX_CFG_OFF,
@@ -3509,6 +3744,12 @@ static int vfe32_proc_general(
 		break;
 
 	case VFE_CMD_PCA_ROLL_OFF_CFG:
+
+		if (cmd->length < (sizeof(uint32_t) * (8 + 4 *
+		V33_PCA_ROLL_OFF_TABLE_SIZE))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
@@ -3567,6 +3808,11 @@ static int vfe32_proc_general(
 		break;
 
 	case VFE_CMD_PCA_ROLL_OFF_UPDATE:
+		if (cmd->length < (sizeof(uint32_t) * (8 + 4 *
+		V33_PCA_ROLL_OFF_TABLE_SIZE))) {
+			rc = -EINVAL;
+			goto proc_general_done;
+		}
 		cmdp = kmalloc(cmd->length, GFP_ATOMIC);
 		if (!cmdp) {
 			rc = -ENOMEM;
