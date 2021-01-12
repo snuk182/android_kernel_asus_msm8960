@@ -1,327 +1,421 @@
 /*
- $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
+	$License:
+	Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-  $
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	$
  */
 
 #include "mlsl.h"
-#include "mpu-i2c.h"
+#include <linux/i2c.h>
+#include <linux/module.h>
+#include "log.h"
+#include "mpu3050.h"
 
-/* ------------ */
-/* - Defines. - */
-/* ------------ */
-
-/* ---------------------- */
-/* - Types definitions. - */
-/* ---------------------- */
-
-/* --------------------- */
-/* - Function p-types. - */
-/* --------------------- */
-
-/**
- *  @brief  used to open the I2C or SPI serial port.
- *          This port is used to send and receive data to the MPU device.
- *  @param  portNum
- *              The COM port number associated with the device in use.
- *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
- */
-unchar MLSLSerialOpen(char const *port, void **sl_handle)
+static int inv_i2c_write(struct i2c_adapter *i2c_adap,
+			    unsigned char address,
+			    unsigned int len, unsigned char const *data)
 {
-	return ML_SUCCESS;
+	struct i2c_msg msgs[1];
+	int res;
+
+	if (!data || !i2c_adap) {
+		LOG_RESULT_LOCATION(-EINVAL);
+		return -EINVAL;
+	}
+
+	msgs[0].addr = address;
+	msgs[0].flags = 0;	/* write */
+	msgs[0].buf = (unsigned char *)data;
+	msgs[0].len = len;
+
+	res = i2c_transfer(i2c_adap, msgs, 1);
+	if (res < 1) {
+		if (res == 0)
+			res = -EIO;
+		LOG_RESULT_LOCATION(res);
+		return res;
+	} else
+		return 0;
 }
 
-/**
- *  @brief  used to reset any buffering the driver may be doing
- *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
- */
-unchar MLSLSerialReset(void *sl_handle)
+static int inv_i2c_write_register(struct i2c_adapter *i2c_adap,
+				     unsigned char address,
+				     unsigned char reg, unsigned char value)
 {
-	return ML_SUCCESS;
+	unsigned char data[2];
+
+	data[0] = reg;
+	data[1] = value;
+	return inv_i2c_write(i2c_adap, address, 2, data);
 }
 
-/**
- *  @brief  used to close the I2C or SPI serial port.
- *          This port is used to send and receive data to the MPU device.
- *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
- */
-unchar MLSLSerialClose(void *sl_handle)
+static int inv_i2c_read(struct i2c_adapter *i2c_adap,
+			   unsigned char address, unsigned char reg,
+			   unsigned int len, unsigned char *data)
 {
-	return ML_SUCCESS;
+	struct i2c_msg msgs[2];
+	int res;
+
+	if (!data || !i2c_adap) {
+		LOG_RESULT_LOCATION(-EINVAL);
+		return -EINVAL;
+	}
+
+	msgs[0].addr = address;
+	msgs[0].flags = 0;	/* write */
+	msgs[0].buf = &reg;
+	msgs[0].len = 1;
+
+	msgs[1].addr = address;
+	msgs[1].flags = I2C_M_RD;
+	msgs[1].buf = data;
+	msgs[1].len = len;
+
+	res = i2c_transfer(i2c_adap, msgs, 2);
+	if (res < 2) {
+		if (res >= 0)
+			res = -EIO;
+		LOG_RESULT_LOCATION(res);
+		return res;
+	} else
+		return 0;
 }
 
-/**
- *  @brief  used to read a single byte of data.
- *          This should be sent by I2C or SPI.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  registerAddr    Register address to read.
- *  @param  data            Single byte of data to read.
- *
- *  @return ML_SUCCESS if the command is successful, an error code otherwise.
- */
-unchar MLSLSerialWriteSingle(void *sl_handle,
-			       unsigned char slaveAddr,
-			       unsigned char registerAddr,
-			       unsigned char data)
+static int mpu_memory_read(struct i2c_adapter *i2c_adap,
+			   unsigned char mpu_addr,
+			   unsigned short mem_addr,
+			   unsigned int len, unsigned char *data)
 {
-	return sensor_i2c_write_register((struct i2c_adapter *) sl_handle,
-				slaveAddr, registerAddr, data);
+	unsigned char bank[2];
+	unsigned char addr[2];
+	unsigned char buf;
+
+	struct i2c_msg msgs[4];
+	int res;
+
+	if (!data || !i2c_adap) {
+		LOG_RESULT_LOCATION(-EINVAL);
+		return -EINVAL;
+	}
+
+	bank[0] = MPUREG_BANK_SEL;
+	bank[1] = mem_addr >> 8;
+
+	addr[0] = MPUREG_MEM_START_ADDR;
+	addr[1] = mem_addr & 0xFF;
+
+	buf = MPUREG_MEM_R_W;
+
+	/* write message */
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = bank;
+	msgs[0].len = sizeof(bank);
+
+	msgs[1].addr = mpu_addr;
+	msgs[1].flags = 0;
+	msgs[1].buf = addr;
+	msgs[1].len = sizeof(addr);
+
+	msgs[2].addr = mpu_addr;
+	msgs[2].flags = 0;
+	msgs[2].buf = &buf;
+	msgs[2].len = 1;
+
+	msgs[3].addr = mpu_addr;
+	msgs[3].flags = I2C_M_RD;
+	msgs[3].buf = data;
+	msgs[3].len = len;
+
+	res = i2c_transfer(i2c_adap, msgs, 4);
+	if (res != 4) {
+		if (res >= 0)
+			res = -EIO;
+		LOG_RESULT_LOCATION(res);
+		return res;
+	} else
+		return 0;
 }
 
-
-/**
- *  @brief  used to write multiple bytes of data from registers.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  registerAddr    Register address to write.
- *  @param  length          Length of burst of data.
- *  @param  data            Pointer to block of data.
- *
- *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
- */
-unchar MLSLSerialWrite(void *sl_handle,
-			 unsigned char slaveAddr,
-			 unsigned short length,
-			 unsigned char const *data)
+static int mpu_memory_write(struct i2c_adapter *i2c_adap,
+			    unsigned char mpu_addr,
+			    unsigned short mem_addr,
+			    unsigned int len, unsigned char const *data)
 {
-	unchar result;
-	const unsigned short dataLength = length - 1;
-	const unsigned char startRegAddr = data[0];
-	unsigned char i2cWrite[SERIAL_MAX_TRANSFER_SIZE + 1];
-	unsigned short bytesWritten = 0;
+	unsigned char bank[2];
+	unsigned char addr[2];
+	unsigned char buf[513];
 
-	while (bytesWritten < dataLength) {
-		unsigned short thisLen = min(SERIAL_MAX_TRANSFER_SIZE,
-					     dataLength - bytesWritten);
-		if (bytesWritten == 0) {
-			result = sensor_i2c_write((struct i2c_adapter *)
-						  sl_handle, slaveAddr,
-						  1 + thisLen, data);
+	struct i2c_msg msgs[3];
+	int res;
+
+	if (!data || !i2c_adap) {
+		LOG_RESULT_LOCATION(-EINVAL);
+		return -EINVAL;
+	}
+	if (len >= (sizeof(buf) - 1)) {
+		LOG_RESULT_LOCATION(-ENOMEM);
+		return -ENOMEM;
+	}
+
+	bank[0] = MPUREG_BANK_SEL;
+	bank[1] = mem_addr >> 8;
+
+	addr[0] = MPUREG_MEM_START_ADDR;
+	addr[1] = mem_addr & 0xFF;
+
+	buf[0] = MPUREG_MEM_R_W;
+	memcpy(buf + 1, data, len);
+
+	/* write message */
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = bank;
+	msgs[0].len = sizeof(bank);
+
+	msgs[1].addr = mpu_addr;
+	msgs[1].flags = 0;
+	msgs[1].buf = addr;
+	msgs[1].len = sizeof(addr);
+
+	msgs[2].addr = mpu_addr;
+	msgs[2].flags = 0;
+	msgs[2].buf = (unsigned char *)buf;
+	msgs[2].len = len + 1;
+
+	res = i2c_transfer(i2c_adap, msgs, 3);
+	if (res != 3) {
+		if (res >= 0)
+			res = -EIO;
+		LOG_RESULT_LOCATION(res);
+		return res;
+	} else
+		return 0;
+}
+
+int inv_serial_single_write(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned char register_addr,
+	unsigned char data)
+{
+	return inv_i2c_write_register((struct i2c_adapter *)sl_handle,
+				      slave_addr, register_addr, data);
+}
+EXPORT_SYMBOL(inv_serial_single_write);
+
+int inv_serial_write(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned short length,
+	unsigned char const *data)
+{
+	int result;
+	const unsigned short data_length = length - 1;
+	const unsigned char start_reg_addr = data[0];
+	unsigned char i2c_write[SERIAL_MAX_TRANSFER_SIZE + 1];
+	unsigned short bytes_written = 0;
+
+	while (bytes_written < data_length) {
+		unsigned short this_len = min(SERIAL_MAX_TRANSFER_SIZE,
+					     data_length - bytes_written);
+		if (bytes_written == 0) {
+			result = inv_i2c_write((struct i2c_adapter *)
+					       sl_handle, slave_addr,
+					       1 + this_len, data);
 		} else {
 			/* manually increment register addr between chunks */
-			i2cWrite[0] = startRegAddr + bytesWritten;
-			memcpy(&i2cWrite[1], &data[1 + bytesWritten],
-			       thisLen);
-			result = sensor_i2c_write((struct i2c_adapter *)
-						  sl_handle, slaveAddr,
-						  1 + thisLen, i2cWrite);
+			i2c_write[0] = start_reg_addr + bytes_written;
+			memcpy(&i2c_write[1], &data[1 + bytes_written],
+				this_len);
+			result = inv_i2c_write((struct i2c_adapter *)
+					       sl_handle, slave_addr,
+					       1 + this_len, i2c_write);
 		}
-		if (ML_SUCCESS != result)
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesWritten += thisLen;
+		}
+		bytes_written += this_len;
 	}
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_write);
 
-
-/**
- *  @brief  used to read multiple bytes of data from registers.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  registerAddr    Register address to read.
- *  @param  length          Length of burst of data.
- *  @param  data            Pointer to block of data.
- *
- *  @return Zero if successful; an error code otherwise
- */
-unchar MLSLSerialRead(void *sl_handle,
-			unsigned char slaveAddr,
-			unsigned char registerAddr,
-			unsigned short length, unsigned char *data)
+int inv_serial_read(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned char register_addr,
+	unsigned short length,
+	unsigned char *data)
 {
-	unchar result;
-	unsigned short bytesRead = 0;
+	int result;
+	unsigned short bytes_read = 0;
 
-	if (registerAddr == MPUREG_FIFO_R_W
-	    || registerAddr == MPUREG_MEM_R_W) {
-		return ML_ERROR_INVALID_PARAMETER;
+	if ((slave_addr & 0x7E) == DEFAULT_MPU_SLAVEADDR
+		&& (register_addr == MPUREG_FIFO_R_W ||
+		    register_addr == MPUREG_MEM_R_W)) {
+		LOG_RESULT_LOCATION(INV_ERROR_INVALID_PARAMETER);
+		return INV_ERROR_INVALID_PARAMETER;
 	}
-	while (bytesRead < length) {
-		unsigned short thisLen =
-		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytesRead);
-		result =
-		    sensor_i2c_read((struct i2c_adapter *) sl_handle,
-				    slaveAddr, registerAddr + bytesRead,
-				    thisLen, &data[bytesRead]);
-		if (ML_SUCCESS != result)
+
+	while (bytes_read < length) {
+		unsigned short this_len =
+		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytes_read);
+		result = inv_i2c_read((struct i2c_adapter *)sl_handle,
+				      slave_addr, register_addr + bytes_read,
+				      this_len, &data[bytes_read]);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesRead += thisLen;
+		}
+		bytes_read += this_len;
 	}
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_read);
 
-
-/**
- *  @brief  used to write multiple bytes of data to the memory.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  memAddr         The location in the memory to write to.
- *  @param  length          Length of burst data.
- *  @param  data            Pointer to block of data.
- *
- *  @return Zero if successful; an error code otherwise
- */
-unchar MLSLSerialWriteMem(void *sl_handle,
-			    unsigned char slaveAddr,
-			    unsigned short memAddr,
-			    unsigned short length,
-			    unsigned char const *data)
+int inv_serial_write_mem(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned short mem_addr,
+	unsigned short length,
+	unsigned char const *data)
 {
-	unchar result;
-	unsigned short bytesWritten = 0;
+	int result;
+	unsigned short bytes_written = 0;
 
-	if ((memAddr & 0xFF) + length > MPU_MEM_BANK_SIZE) {
+	if ((mem_addr & 0xFF) + length > MPU_MEM_BANK_SIZE) {
 		pr_err("memory read length (%d B) extends beyond its"
-			" limits (%d) if started at location %d\n", length,
-			MPU_MEM_BANK_SIZE, memAddr & 0xFF);
-		return ML_ERROR_INVALID_PARAMETER;
+		       " limits (%d) if started at location %d\n", length,
+		       MPU_MEM_BANK_SIZE, mem_addr & 0xFF);
+		return INV_ERROR_INVALID_PARAMETER;
 	}
-	while (bytesWritten < length) {
-		unsigned short thisLen =
-		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytesWritten);
-		result =
-		    mpu_memory_write((struct i2c_adapter *) sl_handle,
-				     slaveAddr, memAddr + bytesWritten,
-				     thisLen, &data[bytesWritten]);
-		if (ML_SUCCESS != result)
+	while (bytes_written < length) {
+		unsigned short this_len =
+		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytes_written);
+		result = mpu_memory_write((struct i2c_adapter *)sl_handle,
+					  slave_addr, mem_addr + bytes_written,
+					  this_len, &data[bytes_written]);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesWritten += thisLen;
+		}
+		bytes_written += this_len;
 	}
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_write_mem);
 
-
-/**
- *  @brief  used to read multiple bytes of data from the memory.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  memAddr         The location in the memory to read from.
- *  @param  length          Length of burst data.
- *  @param  data            Pointer to block of data.
- *
- *  @return Zero if successful; an error code otherwise
- */
-unchar MLSLSerialReadMem(void *sl_handle,
-			   unsigned char slaveAddr,
-			   unsigned short memAddr,
-			   unsigned short length, unsigned char *data)
+int inv_serial_read_mem(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned short mem_addr,
+	unsigned short length,
+	unsigned char *data)
 {
-	unchar result;
-	unsigned short bytesRead = 0;
+	int result;
+	unsigned short bytes_read = 0;
 
-	if ((memAddr & 0xFF) + length > MPU_MEM_BANK_SIZE) {
+	if ((mem_addr & 0xFF) + length > MPU_MEM_BANK_SIZE) {
 		printk
 		    ("memory read length (%d B) extends beyond its limits (%d) "
 		     "if started at location %d\n", length,
-		     MPU_MEM_BANK_SIZE, memAddr & 0xFF);
-		return ML_ERROR_INVALID_PARAMETER;
+		     MPU_MEM_BANK_SIZE, mem_addr & 0xFF);
+		return INV_ERROR_INVALID_PARAMETER;
 	}
-	while (bytesRead < length) {
-		unsigned short thisLen =
-		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytesRead);
+	while (bytes_read < length) {
+		unsigned short this_len =
+		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytes_read);
 		result =
-		    mpu_memory_read((struct i2c_adapter *) sl_handle,
-				    slaveAddr, memAddr + bytesRead,
-				    thisLen, &data[bytesRead]);
-		if (ML_SUCCESS != result)
+		    mpu_memory_read((struct i2c_adapter *)sl_handle,
+				    slave_addr, mem_addr + bytes_read,
+				    this_len, &data[bytes_read]);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesRead += thisLen;
+		}
+		bytes_read += this_len;
 	}
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_read_mem);
 
-
-/**
- *  @brief  used to write multiple bytes of data to the fifo.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  length          Length of burst of data.
- *  @param  data            Pointer to block of data.
- *
- *  @return Zero if successful; an error code otherwise
- */
-unchar MLSLSerialWriteFifo(void *sl_handle,
-			     unsigned char slaveAddr,
-			     unsigned short length,
-			     unsigned char const *data)
+int inv_serial_write_fifo(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned short length,
+	unsigned char const *data)
 {
-	unchar result;
-	unsigned char i2cWrite[SERIAL_MAX_TRANSFER_SIZE + 1];
-	unsigned short bytesWritten = 0;
+	int result;
+	unsigned char i2c_write[SERIAL_MAX_TRANSFER_SIZE + 1];
+	unsigned short bytes_written = 0;
 
 	if (length > FIFO_HW_SIZE) {
 		printk(KERN_ERR
 		       "maximum fifo write length is %d\n", FIFO_HW_SIZE);
-		return ML_ERROR_INVALID_PARAMETER;
+		return INV_ERROR_INVALID_PARAMETER;
 	}
-	while (bytesWritten < length) {
-		unsigned short thisLen =
-		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytesWritten);
-		i2cWrite[0] = MPUREG_FIFO_R_W;
-		memcpy(&i2cWrite[1], &data[bytesWritten], thisLen);
-		result = sensor_i2c_write((struct i2c_adapter *) sl_handle,
-					  slaveAddr, thisLen + 1,
-					  i2cWrite);
-		if (ML_SUCCESS != result)
+	while (bytes_written < length) {
+		unsigned short this_len =
+		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytes_written);
+		i2c_write[0] = MPUREG_FIFO_R_W;
+		memcpy(&i2c_write[1], &data[bytes_written], this_len);
+		result = inv_i2c_write((struct i2c_adapter *)sl_handle,
+				       slave_addr, this_len + 1, i2c_write);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesWritten += thisLen;
+		}
+		bytes_written += this_len;
 	}
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_write_fifo);
 
-
-/**
- *  @brief  used to read multiple bytes of data from the fifo.
- *          This should be sent by I2C.
- *
- *  @param  slaveAddr       I2C slave address of device.
- *  @param  length          Length of burst of data.
- *  @param  data            Pointer to block of data.
- *
- *  @return Zero if successful; an error code otherwise
- */
-unchar MLSLSerialReadFifo(void *sl_handle,
-			    unsigned char slaveAddr,
-			    unsigned short length, unsigned char *data)
+int inv_serial_read_fifo(
+	void *sl_handle,
+	unsigned char slave_addr,
+	unsigned short length,
+	unsigned char *data)
 {
-	unchar result;
-	unsigned short bytesRead = 0;
+	int result;
+	unsigned short bytes_read = 0;
 
 	if (length > FIFO_HW_SIZE) {
 		printk(KERN_ERR
 		       "maximum fifo read length is %d\n", FIFO_HW_SIZE);
-		return ML_ERROR_INVALID_PARAMETER;
+		return INV_ERROR_INVALID_PARAMETER;
 	}
-	while (bytesRead < length) {
-		unsigned short thisLen =
-		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytesRead);
-		result =
-		    sensor_i2c_read((struct i2c_adapter *) sl_handle,
-				    slaveAddr, MPUREG_FIFO_R_W, thisLen,
-				    &data[bytesRead]);
-		if (ML_SUCCESS != result)
+	while (bytes_read < length) {
+		unsigned short this_len =
+		    min(SERIAL_MAX_TRANSFER_SIZE, length - bytes_read);
+		result = inv_i2c_read((struct i2c_adapter *)sl_handle,
+				      slave_addr, MPUREG_FIFO_R_W, this_len,
+				      &data[bytes_read]);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
 			return result;
-		bytesRead += thisLen;
+		}
+		bytes_read += this_len;
 	}
 
-	return ML_SUCCESS;
+	return 0;
 }
+EXPORT_SYMBOL(inv_serial_read_fifo);
+
+/**
+ *  @}
+ */

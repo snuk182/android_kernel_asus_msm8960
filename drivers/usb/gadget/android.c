@@ -94,12 +94,19 @@
 #include "f_tcm.c"
 #endif
 
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Other] Add USB event log"
+#include <linux/asusdebug.h>
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Other] Add USB event log"
+
 MODULE_AUTHOR("Mike Lockwood");
 MODULE_DESCRIPTION("Android Composite USB Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 
 static const char longname[] = "Gadget Android";
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+static int diag_enable = 0;
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
 
 /* Default vendor and product IDs, overridden by userspace */
 #define VENDOR_ID		0x18D1
@@ -1287,6 +1294,7 @@ static struct android_usb_function ptp_function = {
 	.init		= ptp_function_init,
 	.cleanup	= ptp_function_cleanup,
 	.bind_config	= ptp_function_bind_config,
+	.ctrlrequest	= mtp_function_ctrlrequest,//stevensyu add
 };
 
 #ifdef CONFIG_USB_ANDROID_CDC_ECM
@@ -2614,8 +2622,18 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		INIT_LIST_HEAD(&conf->enabled_functions);
 	}
 
-	strlcpy(buf, buff, sizeof(buf));
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+	if(diag_enable){
+		strlcpy(buf, "diag,adb,serial", sizeof("diag,adb,serial"));
+	}
+	else{
+		strlcpy(buf, buff, sizeof(buf));
+	}
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
 	b = strim(buf);
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Other] Add USB event log"
+       ASUSEvtlog("[USB] func:%s\n",buf);
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Other] Add USB event log"
 
 	while (b) {
 		conf_str = strsep(&b, ":");
@@ -2715,6 +2733,13 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.bDeviceClass = device_desc.bDeviceClass;
 		cdev->desc.bDeviceSubClass = device_desc.bDeviceSubClass;
 		cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+		if(diag_enable){
+			cdev->desc.idVendor = __constant_cpu_to_le16(0x05C6);
+			cdev->desc.idProduct = __constant_cpu_to_le16(0x9025);
+		}
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+
 		list_for_each_entry(conf, &dev->configs, list_item)
 			list_for_each_entry(f, &conf->enabled_functions,
 						enabled_list) {
@@ -2782,6 +2807,33 @@ out:
 	return snprintf(buf, PAGE_SIZE, "%s\n", state);
 }
 
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+static ssize_t diag_show(struct device *pdev, struct device_attribute *attr,
+			   char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%d\n", diag_enable);
+}
+static ssize_t diag_store(struct device *pdev, struct device_attribute *attr,
+			    const char *buff, size_t size)
+{
+	sscanf(buff, "%d", &diag_enable);
+	return size;
+}
+static ssize_t serial_show(struct device *pdev, struct device_attribute *attr,
+			   char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%s\n", serial_string);
+}
+static ssize_t serial_store(struct device *pdev, struct device_attribute *attr,
+			    const char *buff, size_t size)
+{
+	if(!diag_enable){
+		sscanf(buff, "%s", serial_string);
+	}
+	return size;
+}
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+
 #define DESCRIPTOR_ATTR(field, format_string)				\
 static ssize_t								\
 field ## _show(struct device *dev, struct device_attribute *attr,	\
@@ -2831,7 +2883,8 @@ DESCRIPTOR_ATTR(bDeviceSubClass, "%d\n")
 DESCRIPTOR_ATTR(bDeviceProtocol, "%d\n")
 DESCRIPTOR_STRING_ATTR(iManufacturer, manufacturer_string)
 DESCRIPTOR_STRING_ATTR(iProduct, product_string)
-DESCRIPTOR_STRING_ATTR(iSerial, serial_string)
+//DESCRIPTOR_STRING_ATTR(iSerial, serial_string)
+static DEVICE_ATTR(iSerial, S_IRUGO | S_IWUSR, serial_show, serial_store);
 
 static DEVICE_ATTR(functions, S_IRUGO | S_IWUSR, functions_show,
 						 functions_store);
@@ -2841,6 +2894,10 @@ static DEVICE_ATTR(pm_qos, S_IRUGO | S_IWUSR,
 static DEVICE_ATTR(state, S_IRUGO, state_show, NULL);
 static DEVICE_ATTR(remote_wakeup, S_IRUGO | S_IWUSR,
 		remote_wakeup_show, remote_wakeup_store);
+
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+static DEVICE_ATTR(diag, S_IRUGO | S_IWUSR, diag_show, diag_store);
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
 
 static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_idVendor,
@@ -2855,6 +2912,10 @@ static struct device_attribute *android_usb_attributes[] = {
 	&dev_attr_functions,
 	&dev_attr_enable,
 	&dev_attr_pm_qos,
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+	&dev_attr_diag,
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Spec] add diag enable support in kernel"
+
 	&dev_attr_state,
 	&dev_attr_remote_wakeup,
 	NULL

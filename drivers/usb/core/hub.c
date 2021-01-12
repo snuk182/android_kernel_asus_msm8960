@@ -1871,6 +1871,9 @@ void usb_disconnect(struct usb_device **pdev)
 	put_device(&udev->dev);
 }
 
+//ASUS_BSP +++ Jay "[A66][USB_Cam][NA][Others]add proc file for query USB Camera FW version"
+u16 ASUS_USB_Cam_Version= 0xffff;
+//ASUS_BSP ---Jay "[A66][USB_Cam][NA][Others]add proc file for query USB Camera FW version"
 #ifdef CONFIG_USB_ANNOUNCE_NEW_DEVICES
 static void show_string(struct usb_device *udev, char *id, char *string)
 {
@@ -1881,9 +1884,19 @@ static void show_string(struct usb_device *udev, char *id, char *string)
 
 static void announce_device(struct usb_device *udev)
 {
-	dev_info(&udev->dev, "New USB device found, idVendor=%04x, idProduct=%04x\n",
+	dev_info(&udev->dev, "New USB device found, idVendor=%04x, idProduct=%04x, bcdDevice=%04x\n",
 		le16_to_cpu(udev->descriptor.idVendor),
-		le16_to_cpu(udev->descriptor.idProduct));
+		le16_to_cpu(udev->descriptor.idProduct),
+		le16_to_cpu(udev->descriptor.bcdDevice));
+
+     //ASUS_BSP +++ Jay "[A66][USB_Cam][NA][Others]add proc file for query USB Camera FW version"
+	if((le16_to_cpu(udev->descriptor.idVendor)==0x0c45)&&(le16_to_cpu(udev->descriptor.idProduct)==0x645a))
+	{
+		ASUS_USB_Cam_Version=le16_to_cpu(udev->descriptor.bcdDevice);
+		dev_info(&udev->dev,"Detect ASUS USB Camera=%04x\n", ASUS_USB_Cam_Version);
+	}
+	//ASUS_BSP --- Jay "[A66][USB_Cam][NA][Others]add proc file for query USB Camera FW version"
+
 	dev_info(&udev->dev,
 		"New USB device strings: Mfr=%d, Product=%d, SerialNumber=%d\n",
 		udev->descriptor.iManufacturer,

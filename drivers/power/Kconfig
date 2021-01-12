@@ -443,4 +443,24 @@ config AB8500_BATTERY_THERM_ON_BATCTRL
 	  Say Y to enable battery temperature measurements using
 	  thermistor connected on BATCTRL ADC.
 
+config BATTERY_ASUS
+	tristate "asus battery driver"
+	help
+	  Say Y here to enable support for asus battery driver
+
+config CHARGER_ASUS
+	tristate "asus charger api"
+	help
+	  Say Y here to enable support for asus charger api
+
+config BATTERY_ASUS_DBG
+	tristate "asus battery driver debug enabled"
+	help
+	  Say Y here to enable support for asus battery driver debug enabled
+
+source "drivers/power/charger/Kconfig"
+source "drivers/power/fsm/Kconfig"
+source "drivers/power/util/Kconfig"
+source "drivers/power/service/Kconfig"
+
 endif # POWER_SUPPLY

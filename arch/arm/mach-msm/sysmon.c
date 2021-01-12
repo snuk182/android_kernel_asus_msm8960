@@ -56,6 +56,12 @@ static struct sysmon_subsys subsys[SYSMON_NUM_SS] = {
 	[SYSMON_SS_Q6FW].transport       = TRANSPORT_SMD,
 	[SYSMON_SS_EXT_MODEM].transport  = TRANSPORT_HSIC,
 	[SYSMON_SS_EXT_MODEM2].transport = TRANSPORT_HSIC,
+	[SYSMON_SS_MODEM].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_MODEM].lock),
+	[SYSMON_SS_LPASS].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_LPASS].lock),
+	[SYSMON_SS_WCNSS].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_WCNSS].lock),
+	[SYSMON_SS_DSPS].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_DSPS].lock),
+	[SYSMON_SS_Q6FW].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_Q6FW].lock),
+	[SYSMON_SS_EXT_MODEM].lock = __MUTEX_INITIALIZER(subsys[SYSMON_SS_EXT_MODEM].lock),
 };
 
 static const char *notif_name[SUBSYS_NOTIF_TYPE_COUNT] = {
@@ -286,7 +292,7 @@ static int sysmon_probe(struct platform_device *pdev)
 		return -ENODEV;
 
 	ss = &subsys[pdev->id];
-	mutex_init(&ss->lock);
+	//mutex_init(&ss->lock);
 	ss->probed = true;
 
 	switch (ss->transport) {

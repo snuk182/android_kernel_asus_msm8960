@@ -232,10 +232,14 @@ static uint32_t msm_read_timer_count(struct msm_clock *clock, int global)
 			return t2;
 		if ((t2 >= t1) && (t3 >= t2))
 			return t2;
-		if (++loop_count == 5) {
+//ASUS BSP Joy: Workaruond UI hang by this function +++
+		if (++loop_count >= 5) {
+/*
 			pr_err("msm_read_timer_count timer %s did not "
 			       "stabilize: %u -> %u -> %u\n",
 			       clock->clockevent.name, t1, t2, t3);
+*/
+//ASUS BSP Joy: Workaruond UI hang by this function ---
 			return t3;
 		}
 	}

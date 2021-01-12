@@ -1019,8 +1019,13 @@ int gether_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 	else
 		dev_warn(&g->dev, "using previous %s ethernet address\n", "host");
 
-	if (ethaddr)
+	//ASUS_BSP+++ "[A66][USB][NA][Fix] fix rndis host MAC"
+	if (ethaddr && is_valid_ether_addr(ethaddr))
+		memcpy(dev->host_mac, ethaddr, ETH_ALEN);
+	else{
 		memcpy(ethaddr, dev->host_mac, ETH_ALEN);
+	}
+	//ASUS_BSP--- "[A66][USB][NA][Fix] fix rndis host MAC"
 
 	net->netdev_ops = &eth_netdev_ops;
 

@@ -18,6 +18,8 @@
 #define	MXT1386_I2C_ADDR2				0x4D
 #define	MXT1386_I2C_ADDR3				0x5A
 #define	MXT1386_I2C_ADDR4				0x5B
+#define	MXT768_I2C_ADDR1				0x4C //ASUS_BSP joe1_++
+#define	MXT768_I2C_ADDR2				0x4D //ASUS_BSP joe1_++
 
 /*
  * Select this address from above depending on what maXTouch
@@ -25,16 +27,22 @@
  * see datasheet.
  */
 
-#define MXT_I2C_ADDRESS                                 MXT224_I2C_ADDR2
+#define MXT_I2C_ADDRESS                                 MXT224_I2C_ADDR1
+//#define MXT_I2C_ADDRESS                                 MXT1386_I2C_ADDR4
+//#define MXT_I2C_ADDRESS                                 MXT768_I2C_ADDR2
 
 #define MXT_BL_ADDRESS                                  0x25
 
 #define	MXT224_FAMILYID				        0x80
 #define MXT1386_FAMILYID                                0xA0
+#define MXT768_FAMILYID                                  0xA1 //ASUS_BSP joe1_++
+#define MXT224E_FAMILYID                                  0x81 //ASUS_BSP joe1_++
 
 #define	MXT224_CAL_VARIANTID				0x01
 #define MXT224_UNCAL_VARIANTID                          0x00
 #define MXT1386_CAL_VARIANTID                           0x00
+#define MXT768_CAL_VARIANTID                           0x02 //ASUS_BSP joe1_++
+#define MXT224E_CAL_VARIANTID                         0x01 //ASUS_BSP joe1_++
 
 #define MXT_MAX_REPORTED_WIDTH                          255
 #define MXT_MAX_REPORTED_PRESSURE                       255
@@ -61,6 +69,7 @@
 #define MXT_TOUCH_XWHEEL_T13                            13
 #define MXT_TOUCH_YWHEEL_T14                            14
 #define	MXT_TOUCH_KEYARRAY_T15				15
+#define	MXT_SPT_COMMSCONFIG_T18				18 //ASUS_BSP joe1_++
 #define	MXT_SPT_GPIOPWM_T19				19
 #define	MXT_PROCI_GRIPFACESUPPRESSION_T20		20
 #define	MXT_PROCG_NOISESUPPRESSION_T22			22
@@ -74,6 +83,18 @@
 #define	MXT_TOUCH_XSLIDERSET_T32			32
 #define	MXT_DEBUG_DIAGNOSTIC_T37			37
 #define	MXT_USER_INFO_T38				38
+
+#define MXT_GRIPSUPPRESSION_T40	40 //ASUS_BSP joe1_++_mxt1386|mxt224e
+#define MXT_PALMSUPPRESSION_T41	41 //ASUS_BSP joe1_++_mxt1386
+#define MXT_PROCI_TOUCHSUPPRESSION_T42 42 //ASUS_BSP joe1_++_mxt768|mxt224e
+#define MXT_DIGITIZER_T43	43 //ASUS_BSP joe1_++_mxt1386
+
+#define MXT_SPT_MESSAGECOUNT_T44 44 //ASUS_BSP joe1_++_mxt768|mxt224e
+#define MXT_SPT_CTECONFIG_T46 46 //ASUS_BSP joe1_++_mxt768|mxt224e
+#define MXT_PROCI_STYLUS_T47 47 //ASUS_BSP joe1_++_mxt768|mxt224e
+#define MXT_PROCI_NOISESUPPRESSION_T48 48 //ASUS_BSP joe1_++_mxt768|mxt224e
+#define MXT_TOUCH_PROXKEY_T52  52 //ASUS_BSP joe1_++_mxt768
+#define MXT_GEN_DATASOURCE_T53 53 //ASUS_BSP joe1_++_mxt768
 
 
 /*
@@ -210,6 +231,11 @@
 #define	MXT_MSG_T28_STATUS				0x01
 #define	MXT_MSGB_T28_CHKERR		0x01
 
+//ASUS_BSP joe1++
+//MXT_SPT_CTECONFIG_T46 message definitions
+#define	MXT_MSG_T46_STATUS				0x01
+#define	MXT_MSGB_T46_CHKERR		0x01
+//ASUS_BSP joe1--
 
 /* One Touch Events */
 #define	MXT_GESTURE_RESERVED		0x00
@@ -243,12 +269,15 @@
 
 #define MXT_MAX_FRAME_SIZE         276
 
+//ASUS_BSP joe1++
 /* Debug levels */
-#define DEBUG_INFO     1
-#define DEBUG_VERBOSE  2
-#define DEBUG_MESSAGES 5
+#define NO_DEBUG       0
+#define DEBUG_POWER     1
+#define DEBUG_INFO  2
+#define DEBUG_VERBOSE 5
 #define DEBUG_RAW      8
 #define DEBUG_TRACE   10
+//ASUS_BSP joe1--
 
 /* IOCTL commands */
 /* TODO: get correct numbers! */

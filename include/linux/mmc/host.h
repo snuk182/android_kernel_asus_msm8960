@@ -408,6 +408,7 @@ struct mmc_host {
 		struct delayed_work work;
 		enum mmc_load	state;
 	} clk_scaling;
+	int			pdev_id;		/* ASUS_BSP+++: Fix eMMC halt in Reliable Write */
 	unsigned long		private[0] ____cacheline_aligned;
 };
 

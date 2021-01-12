@@ -27,6 +27,13 @@ struct msm_hdmi_mode_timing_info {
 #define MSM_HDMI_MODES_DVI		4
 #define MSM_HDMI_MODES_ALL		7
 
+// ASUS_BSP +++ "[A80][MYDP] Enable MyDP on A80 MR"
+// From  joe1: distinguish TV or Pad mode
+enum {
+	HDMI_TYPE_TV = 1,
+	HDMI_TYPE_PAD = 2
+};
+// ASUS_BSP --- "[A80][MYDP] Enable MyDP on A80 MR"
 /* all video formats defined by CEA 861D */
 #define HDMI_VFRMT_UNKNOWN		0
 #define HDMI_VFRMT_640x480p60_4_3	1
@@ -109,6 +116,11 @@ struct msm_hdmi_mode_timing_info {
 #define HDMI_VFRMT_1280x720p30_16_9	62
 #define HDMI_VFRMT_1920x1080p120_16_9	63
 #define HDMI_VFRMT_1920x1080p100_16_9	64
+// ASUS_BSP +++ "[A80][MYDP] Enable MyDP on A80 MR"
+// Support Pad resolution"
+#define HDMI_VFRMT_1280x800p60_16_10	65
+#define HDMI_VFRMT_1920x1200p60_16_10	66
+// ASUS_BSP --- "[A80][MYDP] Enable MyDP on A80 MR"
 /* Video Identification Codes from 65-127 are reserved for the future */
 #define HDMI_VFRMT_END			127
 
@@ -199,6 +211,15 @@ struct msm_hdmi_mode_timing_info {
 #define HDMI_VFRMT_4096x2160p24_16_9_TIMING				\
 	{HDMI_VFRMT_4096x2160p24_16_9, 4096, 1020, 88, 296, false,	\
 	 2160, 8, 10, 72, false, 297000, 24000, false, true}
+// ASUS_BSP +++ "[A80][MYDP] Enable MyDP on A80 MR"
+// Support Pad resolution"
+#define HDMI_VFRMT_1280x800p60_16_10_TIMING				\
+	{HDMI_VFRMT_1280x800p60_16_10, 1280, 48, 32, 80, false,	\
+	 800, 3, 6, 14, false, 74250, 30000, false, true}
+#define HDMI_VFRMT_1920x1200p60_16_10_TIMING				\
+	{HDMI_VFRMT_1920x1200p60_16_10, 1920, 8, 16, 56, false,	\
+	 1200, 3, 6, 26, false, 148500, 60000, false, true}
+// ASUS_BSP --- "[A80][MYDP] Enable MyDP on A80 MR"
 
 #define MSM_HDMI_MODES_SET_TIMING(LUT, MODE) do {		\
 	struct msm_hdmi_mode_timing_info mode = MODE##_TIMING;	\
@@ -237,6 +258,11 @@ static inline void MSM_HDMI_MODES_SET_SUPP_TIMINGS(
 		MSM_HDMI_MODES_SET_TIMING(lut, HDMI_VFRMT_1920x1080p24_16_9);
 		MSM_HDMI_MODES_SET_TIMING(lut, HDMI_VFRMT_1920x1080p25_16_9);
 		MSM_HDMI_MODES_SET_TIMING(lut, HDMI_VFRMT_1920x1080p30_16_9);
+// ASUS_BSP +++ "[A80][MYDP] Enable MyDP on A80 MR"
+// Support Pad resolution"
+		MSM_HDMI_MODES_SET_TIMING(lut, HDMI_VFRMT_1280x800p60_16_10);
+		MSM_HDMI_MODES_SET_TIMING(lut, HDMI_VFRMT_1920x1200p60_16_10);
+// ASUS_BSP --- "[A80][MYDP] Enable MyDP on A80 MR"
 	}
 
 	if (type & MSM_HDMI_MODES_XTND) {
@@ -326,6 +352,11 @@ static inline const char *msm_hdmi_mode_2string(uint32_t mode)
 	case HDMI_VFRMT_4096x2160p24_16_9:	return "4096x2160 p24 16/9";
 	case HDMI_VFRMT_2560x1600p60_16_9:	return "2560x1600 p60 16/9";
 	case HDMI_VFRMT_1280x1024p60_5_4:	return "1280x1042 p60 5/4";
+// ASUS_BSP +++ "[A80][MYDP] Enable MyDP on A80 MR"
+// Support Pad resolution"
+	case HDMI_VFRMT_1280x800p60_16_10: return "1280x800 p60 16/10";
+	case HDMI_VFRMT_1920x1200p60_16_10: return "1920x 1200 p60 16/10";
+// ASUS_BSP --- "[A80][MYDP] Enable MyDP on A80 MR"
 	default:				return "???";
 	}
 }

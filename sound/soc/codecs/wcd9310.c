@@ -39,6 +39,15 @@
 #include <linux/suspend.h>
 #include "wcd9310.h"
 #include "wcdcal-hwdep.h"
+#include <linux/microp_pin_def.h>
+//Bruno++ Audio debug mode
+#include <linux/proc_fs.h>
+//Bruno++ Audio debug mode
+//Rice: added for hs detect and button detect
+#include <linux/a60k_gpio_pinname.h>
+
+#include <linux/mfd/pm8xxx/pm8921.h>
+//Rice: added for hs detect and button detect
 
 static int cfilt_adjust_ms = 10;
 module_param(cfilt_adjust_ms, int, 0644);
@@ -56,21 +65,21 @@ MODULE_PARM_DESC(cfilt_adjust_ms, "delay after adjusting cfilt voltage in ms");
 #define TABLA_CFILT_SLOW_MODE 0x40
 #define TABLA_HP_AMP_ENABLE   0x41
 #define TABLA_HP_AMP_DISABLE  0x48
-#define MBHC_FW_READ_ATTEMPTS 15
-#define MBHC_FW_READ_TIMEOUT 2000000
+//#define MBHC_FW_READ_ATTEMPTS 15
+//#define MBHC_FW_READ_TIMEOUT 2000000
 #define COMP_DIGITAL_DB_GAIN_APPLY(a, b) \
 	(((a) <= 0) ? ((a) - b) : (a))
 
 #define SLIM_CLOSE_TIMEOUT 1000
 #define COMP_BRINGUP_WAIT_TIME  2000
-enum {
-	MBHC_USE_HPHL_TRIGGER = 1,
-	MBHC_USE_MB_TRIGGER = 2
-};
+//enum {
+//	MBHC_USE_HPHL_TRIGGER = 1,
+//	MBHC_USE_MB_TRIGGER = 2
+//};
 
-#define MBHC_NUM_DCE_PLUG_DETECT 3
-#define NUM_ATTEMPTS_INSERT_DETECT 25
-#define NUM_ATTEMPTS_TO_REPORT 5
+//#define MBHC_NUM_DCE_PLUG_DETECT 3
+//#define NUM_ATTEMPTS_INSERT_DETECT 25
+//#define NUM_ATTEMPTS_TO_REPORT 5
 
 #define TABLA_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			 SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
@@ -89,6 +98,9 @@ enum {
 
 #define NUM_CODEC_DAIS 6
 #define MAX_PA_GAIN_OPTIONS  13
+static struct wake_lock jack_in_wake_lock;
+extern int g_flag_csvoice_fe_connected;
+extern int FMStatus;
 
 struct tabla_codec_dai_data {
 	u32 rate;
@@ -102,23 +114,23 @@ struct tabla_codec_dai_data {
 #define TABLA_MCLK_RATE_12288KHZ 12288000
 #define TABLA_MCLK_RATE_9600KHZ 9600000
 
-#define TABLA_FAKE_INS_THRESHOLD_MS 2500
-#define TABLA_FAKE_REMOVAL_MIN_PERIOD_MS 50
+//#define TABLA_FAKE_INS_THRESHOLD_MS 2500
+//#define TABLA_FAKE_REMOVAL_MIN_PERIOD_MS 50
 
-#define TABLA_MBHC_BUTTON_MIN 0x8000
+//#define TABLA_MBHC_BUTTON_MIN 0x8000
 
-#define TABLA_MBHC_FAKE_INSERT_LOW 10
-#define TABLA_MBHC_FAKE_INSERT_HIGH 80
-#define TABLA_MBHC_FAKE_INS_HIGH_NO_GPIO 150
+//#define TABLA_MBHC_FAKE_INSERT_LOW 10
+//#define TABLA_MBHC_FAKE_INSERT_HIGH 80
+//#define TABLA_MBHC_FAKE_INS_HIGH_NO_GPIO 150
 
-#define TABLA_MBHC_STATUS_REL_DETECTION 0x0C
+//#define TABLA_MBHC_STATUS_REL_DETECTION 0x0C
 
-#define TABLA_MBHC_GPIO_REL_DEBOUNCE_TIME_MS 50
+//#define TABLA_MBHC_GPIO_REL_DEBOUNCE_TIME_MS 200
 
-#define TABLA_MBHC_FAKE_INS_DELTA_MV 200
-#define TABLA_MBHC_FAKE_INS_DELTA_SCALED_MV 300
+//#define TABLA_MBHC_FAKE_INS_DELTA_MV 200
+//#define TABLA_MBHC_FAKE_INS_DELTA_SCALED_MV 300
 
-#define TABLA_HS_DETECT_PLUG_TIME_MS (5 * 1000)
+//#define TABLA_HS_DETECT_PLUG_TIME_MS (5 * 1000)
 #define TABLA_HS_DETECT_PLUG_INERVAL_MS 100
 
 #define TABLA_GPIO_IRQ_DEBOUNCE_TIME_US 5000
@@ -139,13 +151,63 @@ static int tabla_codec_enable_slimrx(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event);
 static int tabla_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event);
+//Rice: added for hs detect and button detect
+#define PM8921_GPIO_BASE                NR_GPIO_IRQS
+#define PM8921_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio - 1 + PM8921_GPIO_BASE)
+#define PM8921_IRQ_BASE                 (NR_MSM_IRQS + NR_GPIO_IRQS)
+#define MSM_GPIO_TO_INT(n) (NR_MSM_IRQS + (n))
+#define MSM_CDC_HSDetect g_GPIO_JACK_IN_DET
+#define MSM_CDC_MIC2_BIAS_EN g_GPIO_MIC2_BIAS_EN
+#define MSM_CDC_HS_PATH_EN g_GPIO_HS_PATH_EN
+#define MSM_CDC_ButtonDetect g_GPIO_HOOK_DET
+//Rice: added for hs detect and button detect
+//ASUS BSP TIM-2011.09.05
+#include <linux/switch.h>
+#include <linux/jiffies.h>
+//ASUS BSP TIM-2011.09.05
 
+//Bruno++ for P01
+#ifdef CONFIG_EEPROM_NUVOTON
+#include "../../fm34.h"
+#include <linux/microp_api.h>
+#include <linux/microp_pin_def.h>
+#include <linux/microp_notify.h>
+#endif
+//Bruno++ for P01
 
+//TIM++
+#include <linux/wakelock.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h> 
+#endif
+//Tim++
+static int p02_button_state;
+static struct wake_lock hs_insertion;
+static int during_hs_intertupt=0;
+static unsigned long hs_insertion_jiffies = 0;
+static unsigned long button_press_jiffies = 0;
+static int hs_mode = 0;
+static  struct work_struct button_press_work;
+static  struct work_struct button_release_work;
+struct tabla_priv *g_tabla;
+static int button_state;
+static int p02_headset_status = 0;
+static int headset_mode = 0;
+static struct workqueue_struct *headset_type_workqueue;
+static struct work_struct headset_type_work;
+static struct work_struct p02_retry_headset_state_work;
+extern int AX_MicroP_getGPIOPinLevel(int);
 enum tabla_bandgap_type {
 	TABLA_BANDGAP_OFF = 0,
 	TABLA_BANDGAP_AUDIO_MODE,
 	TABLA_BANDGAP_MBHC_MODE,
 };
+
+enum headset_type{
+    a66 = 0,
+    p02 = 1,
+};
+//TIM++
 
 struct mbhc_micbias_regs {
 	u16 cfilt_val;
@@ -171,6 +233,10 @@ enum {
 	BAND5,
 	BAND_MAX,
 };
+
+static struct wake_lock jack_in_wake_lock;
+extern int g_flag_csvoice_fe_connected;
+//extern int FMStatus;
 
 enum {
 	COMPANDER_1 = 0,
@@ -271,21 +337,21 @@ struct tabla_reg_address {
 	u16 micb_4_mbhc;
 };
 
-enum tabla_mbhc_plug_type {
-	PLUG_TYPE_INVALID = -1,
-	PLUG_TYPE_NONE,
-	PLUG_TYPE_HEADSET,
-	PLUG_TYPE_HEADPHONE,
-	PLUG_TYPE_HIGH_HPH,
-	PLUG_TYPE_GND_MIC_SWAP,
-};
+//enum tabla_mbhc_plug_type {
+//	PLUG_TYPE_INVALID = -1,
+//	PLUG_TYPE_NONE,
+//	PLUG_TYPE_HEADSET,
+//	PLUG_TYPE_HEADPHONE,
+//	PLUG_TYPE_HIGH_HPH,
+//	PLUG_TYPE_GND_MIC_SWAP,
+//};
 
-enum tabla_mbhc_state {
-	MBHC_STATE_NONE = -1,
-	MBHC_STATE_POTENTIAL,
-	MBHC_STATE_POTENTIAL_RECOVERY,
-	MBHC_STATE_RELEASE,
-};
+//enum tabla_mbhc_state {
+//	MBHC_STATE_NONE = -1,
+//	MBHC_STATE_POTENTIAL,
+//	MBHC_STATE_POTENTIAL_RECOVERY,
+//	MBHC_STATE_RELEASE,
+//};
 
 struct hpf_work {
 	struct tabla_priv *tabla;
@@ -315,7 +381,7 @@ struct tabla_priv {
 	bool mbhc_polling_active;
 	unsigned long mbhc_fake_ins_start;
 	int buttons_pressed;
-	enum tabla_mbhc_state mbhc_state;
+	//enum tabla_mbhc_state mbhc_state;
 	struct tabla_mbhc_config mbhc_cfg;
 	struct mbhc_internal_cal_data mbhc_data;
 	u32 ldo_h_count;
@@ -327,7 +393,11 @@ struct tabla_priv {
 	bool no_mic_headset_override;
 	/* Delayed work to report long button press */
 	struct delayed_work mbhc_btn_dwork;
-
+	//Rice: added for hs detect and button detect
+    struct delayed_work HSwork;
+    struct delayed_work Buttonwork;
+    struct gpio_switch_data *headset_jack;
+	//Rice: added for hs detect and button detect
 	struct mbhc_micbias_regs mbhc_bias_regs;
 	bool mbhc_micbias_switched;
 
@@ -398,6 +468,12 @@ struct tabla_priv {
 #endif
 	/* cal info for codec */
 	struct fw_info *fw_data;
+
+//Bruno++	
+#ifdef CONFIG_EEPROM_NUVOTON
+    struct work_struct fm34_work;   /* Do FM34 configuration */
+#endif
+//Bruno++
 };
 
 struct snd_soc_codec *wcd_codec;
@@ -1959,10 +2035,101 @@ static void tabla_codec_enable_adc_block(struct snd_soc_codec *codec,
 	}
 }
 
+//Bruno++
+#ifdef CONFIG_EEPROM_NUVOTON
+#define P02_AUD_EN_VOTER_HEADSET    0x00000001
+#define P02_AUD_EN_VOTER_MIC        0x00000002
+static DEFINE_MUTEX(P02_VOTER_MUTEX);
+static unsigned int g_P02_AUD_EN_VOTES = 0;
+
+static void vote_make_decision(void)
+{
+    printk(DBGMSK_SND_G2 "vote_make_decision votes=%X\r\n", g_P02_AUD_EN_VOTES);
+    if(g_P02_AUD_EN_VOTES)
+    {
+        printk(DBGMSK_SND_G2 "vote_make_decision turn on AUD_EN \r\n");
+        AX_MicroP_setGPIOOutputPin(OUT_uP_AUD_EN, 1);
+    }
+    else
+    {
+        printk(DBGMSK_SND_G2 "vote_make_decision turn off AUD_EN \r\n");
+        AX_MicroP_setGPIOOutputPin(OUT_uP_AUD_EN, 0);
+    }
+}
+
+static void vote_for_P02_AUD_EN(unsigned int mask)
+{
+    
+    mutex_lock(&P02_VOTER_MUTEX);
+    printk(DBGMSK_SND_G2 "vote_for_P02_AUD_EN votes=%X\r\n", mask);
+    g_P02_AUD_EN_VOTES |= mask;
+    vote_make_decision();
+    mutex_unlock(&P02_VOTER_MUTEX);
+}
+
+static void unvote_for_P02_AUD_EN(unsigned int mask)
+{
+    mutex_lock(&P02_VOTER_MUTEX);
+    printk(DBGMSK_SND_G2 "unvote_for_P02_AUD_EN votes=%X\r\n", mask);
+    g_P02_AUD_EN_VOTES &= ~mask;
+    vote_make_decision();
+    mutex_unlock(&P02_VOTER_MUTEX);
+}
+
+bool g_voice_call_param = 0;
+bool micbias_disable;
+extern int gbFM34attached;
+extern int gPIN_FM34_ON;
+extern int g_flag_csvoice_fe_connected;
+extern int gSKYPE_state;
+extern unsigned long g_fm34on2on_jtime;
+extern struct mutex fm34_mutex;
+void fm34_config(struct work_struct *work)
+{
+    printk("%s +++\n", __func__);
+    while(1)
+    {
+        printk("%s +++, gbFM34attached %d, g_voice_call_param %d\n", __func__, gbFM34attached, g_voice_call_param);
+        if ((gbFM34attached) || (isASUS_MSK_set(DBGMSK_SND_G7))) {    
+            unsigned long jtime = jiffies;
+            if ( jiffies_to_msecs(jtime - g_fm34on2on_jtime) < FM34_ON2ON_DEBOUNCE_TIME ) {                
+                printk("%s +++, Need debounce time - %d ms\n", __func__, (FM34_ON2ON_DEBOUNCE_TIME - jiffies_to_msecs(jtime - g_fm34on2on_jtime)));
+                msleep(FM34_ON2ON_DEBOUNCE_TIME - jiffies_to_msecs(jtime - g_fm34on2on_jtime));
+            }
+            mutex_lock(&fm34_mutex);
+	    	AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 1);
+			gPIN_FM34_ON = 1;
+			msleep(10);
+            printk("FM34, power-up, %d\n", gPIN_FM34_ON);
+            if ((g_flag_csvoice_fe_connected || gSKYPE_state) && (!g_voice_call_param) && gPIN_FM34_ON)
+			{
+				printk("%s +++, VOICE CALL!!! \n", __func__);
+				do_FM34_Table(enFM34_PATH_RECORDING_voice);
+                g_voice_call_param = 1;
+			}
+            mutex_unlock(&fm34_mutex);
+            break;
+        }
+
+        if (micbias_disable) {
+            break;
+        }
+
+        msleep(100);
+    }
+    printk("%s ---\n", __func__);
+}
+#endif
+//Bruno++
+
+extern void SetPadCurrentDependOnAudio(bool audioOn);   //avoid P02 mic's noise from charging.
 static int tabla_codec_enable_adc(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_codec *codec = w->codec;
+#ifdef CONFIG_EEPROM_NUVOTON
+    struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);    //Bruno++
+#endif
 	u16 adc_reg;
 	u8 init_bit_shift;
 
@@ -1993,6 +2160,17 @@ static int tabla_codec_enable_adc(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+//Bruno -- for P01 mic
+#ifdef CONFIG_EEPROM_NUVOTON        
+        if ((w->reg == TABLA_A_TX_3_4_EN) && (w->shift == 7)) {
+            printk("[Audio_FM34] RECORDING!!!\n");
+            micbias_disable=0;
+            SetPadCurrentDependOnAudio(true);
+            vote_for_P02_AUD_EN(P02_AUD_EN_VOTER_MIC);
+            schedule_work(&tabla->fm34_work);            
+        }        
+#endif
+//Bruno -- for P01 mic
 		tabla_codec_enable_adc_block(codec, 1);
 		snd_soc_update_bits(codec, adc_reg, 1 << init_bit_shift,
 				1 << init_bit_shift);
@@ -2003,7 +2181,35 @@ static int tabla_codec_enable_adc(struct snd_soc_dapm_widget *w,
 
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		tabla_codec_enable_adc_block(codec, 0);
+//Bruno -- for P01 mic
+#ifdef CONFIG_EEPROM_NUVOTON        
+        if ((w->reg == TABLA_A_TX_3_4_EN) && (w->shift == 7)) {
+            printk("[Audio_FM34] Power Down!!! g_flag_csvoice_fe_connected %d g_voice_call_param %d\n", g_flag_csvoice_fe_connected, g_voice_call_param);
+            if (gbFM34attached) {
+                if (!g_flag_csvoice_fe_connected) {
+                    mutex_lock(&fm34_mutex);
+                    if (g_voice_call_param) {
+                        g_voice_call_param = 0;
+                        printk("%s +++, VR!!! \n", __func__);
+				        do_FM34_Table(enFM34_PATH_RECORDING_VR);
+				        msleep(200);
+                    }
+                    gPIN_FM34_ON = 0;
+                    AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 0);
+                    SetPadCurrentDependOnAudio(false);
+                    unvote_for_P02_AUD_EN(P02_AUD_EN_VOTER_MIC);
+                    g_fm34on2on_jtime = jiffies;
+                    mutex_unlock(&fm34_mutex);
+                    break;
+                }
+            } else {
+                printk("[Audio_FM34] Attach not finished.\n");
+            }
+            micbias_disable=1;
+        }
+#endif
+//Bruno -- for P01 mic
+	tabla_codec_enable_adc_block(codec, 0); 
 		break;
 	}
 	return 0;
@@ -2080,7 +2286,8 @@ static void tabla_codec_disable_clock_block(struct snd_soc_codec *codec)
 	usleep_range(50, 50);
 	tabla->clock_active = false;
 }
-
+//Bruno++
+#if 0
 static int tabla_codec_mclk_index(const struct tabla_priv *tabla)
 {
 	if (tabla->mbhc_cfg.mclk_rate == TABLA_MCLK_RATE_12288KHZ)
@@ -2092,6 +2299,8 @@ static int tabla_codec_mclk_index(const struct tabla_priv *tabla)
 		return -EINVAL;
 	}
 }
+#endif
+//Bruno++
 
 static void tabla_enable_rx_bias(struct snd_soc_codec *codec, u32  enable)
 {
@@ -2390,7 +2599,8 @@ static int tabla_codec_enable_dmic(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-
+//Bruno++
+#if 0
 /* called under codec_resource_lock acquisition */
 static void tabla_codec_start_hs_polling(struct snd_soc_codec *codec)
 {
@@ -2450,12 +2660,14 @@ static void tabla_codec_pause_hs_polling(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_CLK_CTL, 0x8, 0x8);
 	pr_debug("%s: leave\n", __func__);
 }
+#endif
+//Bruno++
 
 static void tabla_codec_switch_cfilt_mode(struct snd_soc_codec *codec, int mode)
 {
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
 	u8 reg_mode_val, cur_mode_val;
-	bool mbhc_was_polling = false;
+	//bool mbhc_was_polling = false;
 
 	if (mode)
 		reg_mode_val = TABLA_CFILT_FAST_MODE;
@@ -2465,16 +2677,21 @@ static void tabla_codec_switch_cfilt_mode(struct snd_soc_codec *codec, int mode)
 	cur_mode_val = snd_soc_read(codec,
 					tabla->mbhc_bias_regs.cfilt_ctl) & 0x40;
 
-	if (cur_mode_val != reg_mode_val) {
+	if (cur_mode_val != reg_mode_val) {      
 		TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
-		if (tabla->mbhc_polling_active) {
+        //Bruno++  
+		/*if (tabla->mbhc_polling_active) {
 			tabla_codec_pause_hs_polling(codec);
 			mbhc_was_polling = true;
-		}
+		}*/        
+        //Bruno++
 		snd_soc_update_bits(codec,
 			tabla->mbhc_bias_regs.cfilt_ctl, 0x40, reg_mode_val);
-		if (mbhc_was_polling)
+        //Bruno++
+		/*if (mbhc_was_polling)
 			tabla_codec_start_hs_polling(codec);
+        */
+        //Bruno++
 		TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 		pr_debug("%s: CFILT mode change (%x to %x)\n", __func__,
 			cur_mode_val, reg_mode_val);
@@ -2570,6 +2787,12 @@ done:
 	return rc;
 }
 
+static bool mbhc_micbias_on = true;
+
+#define TABLA_CFILT_SETTLE_MS 30
+
+//Bruno++
+#if 0
 static bool tabla_is_hph_pa_on(struct snd_soc_codec *codec)
 {
 	u8 hph_reg_val = 0;
@@ -2625,10 +2848,6 @@ static void tabla_codec_drive_v_to_micbias(struct snd_soc_codec *codec,
 		tabla_turn_onoff_override(codec, false);
 	}
 }
-
-static bool mbhc_micbias_on = true;
-
-#define TABLA_CFILT_SETTLE_MS 30
 
 /* called under codec_resource_lock acquisition */
 static void __tabla_codec_switch_micbias(struct snd_soc_codec *codec,
@@ -2719,6 +2938,8 @@ static void tabla_codec_switch_micbias(struct snd_soc_codec *codec,
 {
 	return __tabla_codec_switch_micbias(codec, vddio_switch, true, true);
 }
+#endif
+//Bruno++
 
 static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
@@ -2781,13 +3002,16 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 				 __func__, *micbias_enable_count);
 			break;
 		}
+//Bruno++
+#if 0
 		/* Decide whether to switch the micbias for MBHC */
 		if (wreg == tabla->mbhc_bias_regs.ctl_reg) {
 			TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
 			tabla_codec_switch_micbias(codec, 0);
 			TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 		}
-
+#endif
+//Bruno++
 		snd_soc_update_bits(codec, wreg, 0x0E, 0x0A);
 		tabla_codec_update_cfilt_usage(codec, cfilt_sel_val, 1);
 
@@ -2806,6 +3030,8 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 				 __func__, *micbias_enable_count);
 			break;
 		}
+//Bruno++
+#if 0
 		usleep_range(20000, 20000);
 
 		if (tabla->mbhc_polling_active &&
@@ -2815,6 +3041,8 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 			tabla_codec_start_hs_polling(codec);
 			TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 		}
+#endif
+//Bruno++
 		break;
 
 	case SND_SOC_DAPM_POST_PMD:
@@ -2825,14 +3053,16 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		}
 
 		snd_soc_update_bits(codec, wreg, 1 << 7, 0);
-
+//Bruno++
+#if 0
 		if ((wreg == tabla->mbhc_bias_regs.ctl_reg) &&
 		    tabla_is_hph_pa_on(codec)) {
 			TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
 			tabla_codec_switch_micbias(codec, 1);
 			TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 		}
-
+#endif
+//Bruno++
 		if (strnstr(w->name, internal1_text, 30))
 			snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
 		else if (strnstr(w->name, internal2_text, 30))
@@ -3125,6 +3355,8 @@ static int tabla_hphr_dac_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+//Bruno++
+#if 0
 static void tabla_snd_soc_jack_report(struct tabla_priv *tabla,
 				      struct snd_soc_jack *jack, int status,
 				      int mask)
@@ -3177,6 +3409,8 @@ static void hphrocp_off_report(struct work_struct *work)
 		hphrocp_work);
 	hphocp_off_report(tabla, SND_JACK_OC_HPHR, TABLA_IRQ_HPH_PA_OCPR_FAULT);
 }
+#endif
+//Bruno++
 
 static int tabla_codec_enable_anc(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
@@ -3315,11 +3549,13 @@ static int tabla_hph_pa_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_codec *codec = w->codec;
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
-	u8 mbhc_micb_ctl_val;
+	//u8 mbhc_micb_ctl_val;
 	pr_debug("%s: event = %d\n", __func__, event);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
+//Bruno++
+#if 0
 		mbhc_micb_ctl_val = snd_soc_read(codec,
 				tabla->mbhc_bias_regs.ctl_reg);
 
@@ -3328,6 +3564,8 @@ static int tabla_hph_pa_event(struct snd_soc_dapm_widget *w,
 			tabla_codec_switch_micbias(codec, 1);
 			TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 		}
+#endif
+//Bruno++
 		break;
 
 	case SND_SOC_DAPM_POST_PMD:
@@ -3352,9 +3590,9 @@ static int tabla_hph_pa_event(struct snd_soc_dapm_widget *w,
 				schedule_work(&tabla->hphrocp_work);
 		}
 
-		TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
-		tabla_codec_switch_micbias(codec, 0);
-		TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+		//TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
+		//tabla_codec_switch_micbias(codec, 0);
+		//TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
 
 		pr_debug("%s: sleep 10 ms after %s PA disable.\n", __func__,
 				w->name);
@@ -4179,6 +4417,9 @@ static unsigned int tabla_read(struct snd_soc_codec *codec,
 	return val;
 }
 
+//Bruno++
+#if 0
+
 static s16 tabla_get_current_v_ins(struct tabla_priv *tabla, bool hu)
 {
 	s16 v_ins;
@@ -4258,6 +4499,8 @@ static void tabla_codec_calibrate_hs_polling(struct snd_soc_codec *codec)
 	snd_soc_write(codec, TABLA_A_CDC_MBHC_TIMER_B6_CTL,
 		      n_cic[tabla_codec_mclk_index(tabla)]);
 }
+#endif
+//Bruno++
 
 static int tabla_startup(struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
@@ -4314,13 +4557,13 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 		tabla->mclk_enabled = true;
 
 		if (tabla->mbhc_polling_active) {
-			tabla_codec_pause_hs_polling(codec);
-			tabla_codec_disable_clock_block(codec);
+			//tabla_codec_pause_hs_polling(codec);
+			tabla_codec_disable_clock_block(codec); 
 			tabla_codec_enable_bandgap(codec,
 						   TABLA_BANDGAP_AUDIO_MODE);
 			tabla_codec_enable_clock_block(codec, 0);
-			tabla_codec_calibrate_hs_polling(codec);
-			tabla_codec_start_hs_polling(codec);
+			//tabla_codec_calibrate_hs_polling(codec);  //Bruno++
+			//tabla_codec_start_hs_polling(codec);  //Bruno++
 		} else {
 			tabla_codec_disable_clock_block(codec);
 			tabla_codec_enable_bandgap(codec,
@@ -4338,7 +4581,8 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 		tabla->mclk_enabled = false;
 
 		if (tabla->mbhc_polling_active) {
-			tabla_codec_pause_hs_polling(codec);
+
+			//tabla_codec_pause_hs_polling(codec);
 			tabla_codec_disable_clock_block(codec);
 			tabla_codec_enable_bandgap(codec,
 					(mbhc_micbias_on ?
@@ -4346,8 +4590,20 @@ int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable, bool dapm)
 					 TABLA_BANDGAP_MBHC_MODE));
 			tabla_enable_rx_bias(codec, 1);
 			tabla_codec_enable_clock_block(codec, 1);
-			tabla_codec_calibrate_hs_polling(codec);
-			tabla_codec_start_hs_polling(codec);
+			//tabla_codec_calibrate_hs_polling(codec);
+			//tabla_codec_start_hs_polling(codec);
+
+#if 0 //maybe
+			if (!tabla->mclk_enabled) {
+				//tabla_codec_pause_hs_polling(codec);  //Bruno++
+				tabla_codec_enable_bandgap(codec,
+					TABLA_BANDGAP_MBHC_MODE);
+				tabla_enable_rx_bias(codec, 1);
+				tabla_codec_enable_clock_block(codec, 1);
+				//tabla_codec_calibrate_hs_polling(codec);  //Bruno++
+				//tabla_codec_start_hs_polling(codec);  //Bruno++
+			}
+#endif //sherry
 			snd_soc_update_bits(codec, TABLA_A_CLK_BUFF_EN1,
 					0x05, 0x01);
 		} else {
@@ -5596,7 +5852,8 @@ static const struct snd_soc_dapm_widget tabla_dapm_widgets[] = {
 	SND_SOC_DAPM_MIXER("EAR_PA_MIXER", SND_SOC_NOPM, 0, 0,
 		ear_pa_mix, ARRAY_SIZE(ear_pa_mix)),
 };
-
+//Bruno++
+#if 0
 static short tabla_codec_read_sta_result(struct snd_soc_codec *codec)
 {
 	u8 bias_msb, bias_lsb;
@@ -6540,7 +6797,11 @@ static bool tabla_mbhc_fw_validate(const void *data, size_t size)
 
 	return true;
 }
+#endif
+//Bruno++
 
+//Bruno++
+#if 0
 /* called under codec_resource_lock acquisition */
 static int tabla_determine_button(const struct tabla_priv *priv,
 				  const s32 micmv)
@@ -6832,7 +7093,120 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 	TABLA_RELEASE_LOCK(priv->codec_resource_lock);
 	return IRQ_HANDLED;
 }
+#endif
+//Bruno++
+#ifndef DBGMSK_BL_G4 //sherry++
+#define DBGMSK_BL_G4   "\xFC\x0d\x10"
+#endif
+//Bruno++
+static irqreturn_t tabla_button_detect_irq(int irq, void *data)
+{
+	struct tabla_priv *priv = data;
+    wake_lock_timeout(&hs_insertion, 3 * HZ);
+    schedule_delayed_work(&priv->Buttonwork, 0);
 
+	return IRQ_HANDLED;
+}
+
+void button_detect(struct work_struct *work)
+{
+    
+    int i;
+    int insertion_unstable=0;
+    int button_value_1;
+    int button_value_2;
+    int hs_value;
+    
+    struct tabla_priv *priv =
+            container_of(work, struct tabla_priv, Buttonwork.work);
+//    struct snd_soc_codec *codec = priv->codec;
+    
+    button_press_jiffies = jiffies;
+        
+    button_value_1 = gpio_get_value(MSM_CDC_ButtonDetect);
+    disable_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    if (during_hs_intertupt==0 && !gpio_get_value_cansleep(MSM_CDC_HSDetect))
+    {   
+        for (i=1; i<=3; i++)
+            {   
+                msleep(1);
+                button_value_2 = gpio_get_value(MSM_CDC_ButtonDetect);
+                hs_value = gpio_get_value(MSM_CDC_HSDetect);
+
+                if ((button_value_1 != button_value_2) || (hs_value != 0))
+                {
+                    insertion_unstable=1;
+                    break;
+                }
+                    
+            }
+        
+        printk(DBGMSK_BL_G4"----------button =(%lu) hs=(%lu) hs_mode=(%d)----------\n",button_press_jiffies,hs_insertion_jiffies + HZ,hs_mode);
+        if (time_after(button_press_jiffies, (hs_insertion_jiffies + HZ))) 
+            {
+                if(hs_mode == 2){
+                    printk(DBGMSK_BL_G4"----------change headset status to 2----------\n");
+                    switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                    hs_mode = 0;    
+                    msleep(100);
+                    switch_set_state(&priv->headset_jack->sdev, 1);
+                    hs_mode = 1;
+                }
+                if(insertion_unstable==0)
+                {
+                    if (button_value_1==0)
+                        {
+                        schedule_work(&button_release_work);
+                            /*if (priv->buttons_pressed & SND_JACK_BTN_0) 
+                                {
+                                    msleep(100);
+                                    if (gpio_get_value(MSM_CDC_HSDetect))
+                                    {
+                                        enable_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+                                        return;
+                                    }
+                                    printk("[Button release] \n");
+                                        if (priv->button_jack)
+                                        snd_soc_jack_report(priv->button_jack, 0,
+                                        SND_JACK_BTN_0);
+                
+                                            priv->buttons_pressed &= ~SND_JACK_BTN_0;
+                                            snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+                                            0x08);
+                                            //tabla_codec_start_hs_polling(codec);
+                                }*/
+                            
+                        }
+                    else if (button_value_1==1) 
+                        {
+                         schedule_work(&button_press_work);
+                                   /* msleep(100);
+                                    if (gpio_get_value(MSM_CDC_HSDetect))
+                                    {
+                                        enable_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+                                        return;
+                                    }
+                            printk("[Button pressed] \n");
+                                if (priv->button_jack)
+                                    snd_soc_jack_report(priv->button_jack, SND_JACK_BTN_0,
+                                    SND_JACK_BTN_0);
+            
+                                    priv->buttons_pressed |= SND_JACK_BTN_0;
+                                    snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+                                    0x09);
+                                        //usleep_range(100000, 100000);*/
+                        }
+                }
+            }
+    }
+    
+    enable_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+
+}
+//Bruno++
+
+//Bruno++
+#if 0
 static void tabla_codec_shutdown_hs_removal_detect(struct snd_soc_codec *codec)
 {
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
@@ -8191,18 +8565,22 @@ static void mbhc_fw_read(struct work_struct *work)
 
 	(void) tabla_mbhc_init_and_calibrate(tabla);
 }
+#endif
+//Bruno++
 
 int tabla_hs_detect(struct snd_soc_codec *codec,
 		    const struct tabla_mbhc_config *cfg)
 {
 	struct tabla_priv *tabla;
-	int rc = 0;
+	//int rc = 0;		//Bruno++
 
-	if (!codec || !cfg->calibration) {
+	if (!codec)	{ // || !cfg->calibration) {	Bruno++
 		pr_err("Error: no codec or calibration\n");
 		return -EINVAL;
 	}
 
+//Bruno++
+#if 0
 	if (cfg->mclk_rate != TABLA_MCLK_RATE_12288KHZ) {
 		if (cfg->mclk_rate == TABLA_MCLK_RATE_9600KHZ)
 			pr_err("Error: clock rate %dHz is not yet supported\n",
@@ -8212,11 +8590,13 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 			       cfg->mclk_rate);
 		return -EINVAL;
 	}
+#endif
+//Bruno++
 
 	tabla = snd_soc_codec_get_drvdata(codec);
 	tabla->mbhc_cfg = *cfg;
-	tabla->in_gpio_handler = false;
-	tabla->current_plug = PLUG_TYPE_NONE;
+	//tabla->in_gpio_handler = false;
+	//tabla->current_plug = PLUG_TYPE_NONE;
 	tabla->lpi_enabled = false;
 	tabla_get_mbhc_micbias_regs(codec, &tabla->mbhc_bias_regs);
 
@@ -8224,6 +8604,8 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 	if (!mbhc_micbias_on)
 		snd_soc_update_bits(codec, tabla->mbhc_bias_regs.cfilt_ctl,
 				    0x40, TABLA_CFILT_FAST_MODE);
+//Rice: added for hs detect and button detect
+#if 0
 	INIT_DELAYED_WORK(&tabla->mbhc_firmware_dwork, mbhc_fw_read);
 	INIT_DELAYED_WORK(&tabla->mbhc_btn_dwork, btn_lpress_fn);
 	INIT_WORK(&tabla->hphlocp_work, hphlocp_off_report);
@@ -8245,6 +8627,9 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 
 	}
 	return rc;
+#endif
+	return 0;
+//Rice: added for hs detect and button detect
 }
 EXPORT_SYMBOL_GPL(tabla_hs_detect);
 
@@ -8263,6 +8648,175 @@ int tabla_codec_hp_amp_enable(u8 enable)
 	return rc;
 }
 EXPORT_SYMBOL_GPL(tabla_codec_hp_amp_enable);
+
+//Bruno++
+/*
+int check_headset_type(void)
+{
+    int state_1;
+    int state_2;
+    int unstable = 1;
+    int i;
+    
+    while (unstable){
+        state_1 = gpio_get_value_cansleep(MSM_CDC_ButtonDetect);
+        //printk("[HEADSET] state_1 = %d\n",state_1);
+        for (i=1; i<=10; i++){
+            msleep(1);
+            state_2 = gpio_get_value_cansleep(MSM_CDC_ButtonDetect);
+                if (state_1 != state_2)
+                    break;
+                else if(i == 10)
+                {
+                    unstable = 0;
+                }
+        }
+    }
+    return state_1;
+}
+*/
+int g_bDebugMode = 0;
+
+static void headset_type_func(struct work_struct *work){
+    int i;
+
+    for (i=0;i<=9;i++){
+        msleep(1000);
+        if (!gpio_get_value(MSM_CDC_HSDetect) && !gpio_get_value(MSM_CDC_ButtonDetect)){//headset
+            if (hs_mode != 1){
+                switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                hs_mode = 0;
+                msleep(100);
+                switch_set_state(&g_tabla->headset_jack->sdev, 1);
+                hs_mode = 1;
+                printk("----------[HEADSET] headset insertion hs_mode = 1----------\n");//with mic
+            }
+        }
+        else if(!gpio_get_value(MSM_CDC_HSDetect) && gpio_get_value(MSM_CDC_ButtonDetect)){//headphone
+            if (hs_mode != 2){
+                switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                hs_mode = 0;
+                msleep(100);
+                switch_set_state(&g_tabla->headset_jack->sdev, 2);
+                hs_mode = 2;
+                printk("----------[HEADSET] headset insertion hs_mode = 2----------\n");//no mic
+            }
+        }
+
+    }
+}
+
+void hs_detect(struct work_struct *work)
+{        
+    struct tabla_priv *priv = container_of(work, struct tabla_priv, HSwork.work);
+    struct snd_soc_codec *codec = priv->codec;
+    int state;
+    int hs_value_1;
+    int hs_value_2;
+    int i ;
+
+    hs_value_1 = gpio_get_value(MSM_CDC_HSDetect);
+    hs_insertion_jiffies = jiffies;
+    wake_lock_timeout(&hs_insertion, 3 * HZ);
+        if (g_bDebugMode)
+        {
+            printk("Debug Mode, disable Headset Function!!!\n");
+            return;
+        }
+
+        if (g_A60K_hwID == A60K_EVB)
+			disable_irq(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38));
+		else
+			disable_irq(MSM_GPIO_TO_INT(MSM_CDC_HSDetect));
+        
+        msleep(20);        
+        for (i=1; i<=5; i++)
+            {   
+                msleep(1);
+                hs_value_2 = gpio_get_value(MSM_CDC_HSDetect);
+
+                if (hs_value_1 != hs_value_2)
+                {
+                    if (g_A60K_hwID == A60K_EVB)
+                        enable_irq(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38));
+                    else
+                        enable_irq(MSM_GPIO_TO_INT(MSM_CDC_HSDetect));
+                    return;
+                }
+            }
+        state = !gpio_get_value_cansleep(MSM_CDC_HSDetect);        
+        if (state == 0)
+        {
+            switch_set_state(&priv->headset_jack->sdev, state);
+            gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 0);
+            hs_insertion_jiffies = 0;
+            button_press_jiffies = 0;
+            hs_mode = 0;
+            printk(DBGMSK_BL_G4"----------[HEADSET]HS detect removal!!! ----------\n");
+            if (button_state == 1)
+            {
+            snd_soc_jack_report(priv->mbhc_cfg.button_jack, 0,
+            SND_JACK_BTN_0);
+
+             priv->buttons_pressed &= ~SND_JACK_BTN_0;
+             snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+             0x08);
+             printk(DBGMSK_BL_G4"----------[HEADSET] Button release for bug ----------\n");
+             button_state = 0;
+            }
+        }
+        else
+        {
+            gpio_direction_output(MSM_CDC_MIC2_BIAS_EN,1);
+            /*usleep_range(10000, 10000);
+            mic_state = check_headset_type();
+            
+
+            if (mic_state)//HEADPHONE
+            {
+                switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                hs_mode = 0;
+                msleep(100);
+                switch_set_state(&priv->headset_jack->sdev, 2);
+                hs_mode = 2;
+                printk(DBGMSK_BL_G4"----------[HEADSET] headset insertion hs_mode = 2----------\n");//no mic
+            }
+            else//HEADSET
+            {
+                switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                hs_mode = 0;
+                msleep(100);
+                switch_set_state(&priv->headset_jack->sdev, state);
+                hs_mode = 1;
+                printk(DBGMSK_BL_G4"----------[HEADSET] headset insertion hs_mode = 1----------\n");//with mic
+            }*/
+
+        }
+        queue_work(headset_type_workqueue, &headset_type_work);
+        if (g_A60K_hwID == A60K_EVB)
+			enable_irq(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38));
+		else
+			enable_irq(MSM_GPIO_TO_INT(MSM_CDC_HSDetect));
+        
+        return;
+}
+
+static irqreturn_t tabla_hs_detect_irq(int irq, void *data)
+{
+    
+	struct tabla_priv *priv = data;
+    during_hs_intertupt=1;
+    schedule_delayed_work(&priv->HSwork, 0);
+
+	//ASUS BSP HANS++
+       if (g_flag_csvoice_fe_connected || FMStatus)
+               wake_lock_timeout(&jack_in_wake_lock, 3 * HZ);
+	//ASUS BSP HANS--
+
+    during_hs_intertupt=0;
+	return IRQ_HANDLED;
+}
+//Bruno++
 
 static irqreturn_t tabla_slimbus_irq(int irq, void *data)
 {
@@ -8670,6 +9224,933 @@ static void tabla_update_reg_address(struct tabla_priv *priv)
 	}
 }
 
+static void p02_retry_headset_state_func(struct work_struct *work )
+{
+    if(AX_MicroP_getGPIOPinLevel(IN_HP_IN)){
+        if (p02_headset_status != 0){
+            switch_set_state(&g_tabla->headset_jack->sdev, 0);            
+            p02_headset_status = 0;
+            printk("change p02 headset mode to 0\n");
+        }
+    }
+}
+static int p02_headset_type(void)
+{
+    int status_1;
+    int status_2;
+    int ret;
+    int i;
+    int unstable=1;
+    while (unstable == 1){
+        status_1 = AX_MicroP_getGPIOPinLevel(IN_LOUT_DET_R);
+        for (i=1; i<=10; i++){
+            msleep(1);
+            status_2 = AX_MicroP_getGPIOPinLevel(IN_LOUT_DET_R);
+                if (status_1 != status_2)
+                    break;
+                else if(i == 10)
+                    unstable = 0;
+        }
+    }
+    status_2 = AX_MicroP_getGPIOPinLevel(IN_LOUT_DET_R);//return 1 mean headset     return 0 mean headphone
+    if (status_2 == 1)
+        ret = 1;
+    else
+        ret = 2;
+    return ret;
+}
+
+//Bruno++ P01 headset
+#ifdef CONFIG_EEPROM_NUVOTON
+static int headset_p01_event(struct notifier_block *this, unsigned long event, void *ptr);
+
+static struct notifier_block headset_p01_notifier = {
+        .notifier_call = headset_p01_event,
+        .priority = AUDIO_MP_NOTIFY,
+};
+
+static int headset_p01_event(struct notifier_block *this, unsigned long event, void *ptr)
+{
+    int state;
+    switch(event)
+    {
+        case P01_ADD:
+            headset_mode = p02;
+            return NOTIFY_DONE;
+
+        case P01_HEADPHONE_IN:
+            vote_for_P02_AUD_EN(P02_AUD_EN_VOTER_HEADSET);
+            state = p02_headset_type();
+            switch_set_state(&g_tabla->headset_jack->sdev, state);            
+            p02_headset_status = state;
+            printk("----------P02 HS detect insertion(mode=%d)----------\n",state);
+            return NOTIFY_DONE;
+        
+        case P01_HEADPHONE_OUT:            
+            printk("----------P02 HS detect removal----------\n");
+            switch_set_state(&g_tabla->headset_jack->sdev, 0);
+            p02_headset_status = 0;
+            if (p02_button_state == 1)//add button release event if button event is unbalance
+            {
+                snd_soc_jack_report(g_tabla->mbhc_cfg.button_jack, 0,
+                SND_JACK_BTN_0);
+    
+                g_tabla->buttons_pressed &= ~SND_JACK_BTN_0;
+                snd_soc_write(g_tabla->codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+                0x08);
+                printk(DBGMSK_BL_G4"----------[HEADSET] p02_Button release for bug ----------\n");
+                p02_button_state = 0;
+            }
+            unvote_for_P02_AUD_EN(P02_AUD_EN_VOTER_HEADSET);
+            return NOTIFY_DONE;
+
+        case P01_HEADSET_HOOKKEY_PRESSED:
+            printk("----------[P02_HOOK KEY]PRESSED----------\n");
+            schedule_work(&button_press_work);
+            queue_work(headset_type_workqueue, &p02_retry_headset_state_work);
+            return NOTIFY_DONE;
+
+        case P01_HEADSET_HOOKKEY_RELEASED:
+            printk("----------[P02_HOOK KEY]RELEASED----------\n");
+            schedule_work(&button_release_work);
+            queue_work(headset_type_workqueue, &p02_retry_headset_state_work);
+            return NOTIFY_DONE;
+
+        case P01_REMOVE:            
+            switch_set_state(&g_tabla->headset_jack->sdev, 0);
+            headset_mode = a66;
+            return NOTIFY_DONE;
+
+        default:
+            return NOTIFY_DONE;
+    }
+};
+#endif
+//Bruno++ P01 headset
+
+//Bruno++0
+void report_press_event(struct work_struct *work)
+{
+    struct tabla_priv *priv = g_tabla;
+    struct snd_soc_codec *codec = g_tabla->codec;
+    if (headset_mode == a66){
+        msleep(200);
+        if (!gpio_get_value_cansleep(MSM_CDC_HSDetect)){
+            snd_soc_jack_report(priv->mbhc_cfg.button_jack, SND_JACK_BTN_0,
+                                            SND_JACK_BTN_0);
+            priv->buttons_pressed |= SND_JACK_BTN_0;
+            snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+            0x09);
+            printk(DBGMSK_BL_G4"----------[A66 Button pressed]---------- \n");
+        button_state = 1;
+        }
+    }
+    else {//headset_mode ==p02
+        msleep(200);
+        if (p02_headset_status == 2){//modify headset status if detect wrong state
+            p02_headset_status = 1;
+            switch_set_state(&g_tabla->headset_jack->sdev, 1);
+        }
+        if (!AX_MicroP_getGPIOPinLevel(IN_HP_IN)){//if p02 headset plugin
+            snd_soc_jack_report(priv->mbhc_cfg.button_jack, SND_JACK_BTN_0,
+                                                    SND_JACK_BTN_0);
+            printk(DBGMSK_BL_G4"----------[P02 Button pressed]   p02_headset_status=%d---------- \n",p02_headset_status);
+            p02_button_state = 1;
+        }
+    }
+}
+
+void report_release_event(struct work_struct *work)
+{
+    struct tabla_priv *priv = g_tabla;
+    struct snd_soc_codec *codec = g_tabla->codec;
+    if (headset_mode == a66){
+        msleep(200);
+        if (!gpio_get_value_cansleep(MSM_CDC_HSDetect)){
+            if (priv->mbhc_cfg.button_jack)
+                snd_soc_jack_report(priv->mbhc_cfg.button_jack, 0,
+                SND_JACK_BTN_0);
+            priv->buttons_pressed &= ~SND_JACK_BTN_0;
+            snd_soc_write(codec, TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+            0x08);
+            printk(DBGMSK_BL_G4"----------[A66 Button release]---------- \n");
+            button_state = 0;
+        }
+    }
+    else  {//headset_mode ==p02
+        msleep(200);
+        if (!AX_MicroP_getGPIOPinLevel(IN_HP_IN)){////if p02 headset plugin
+            snd_soc_jack_report(priv->mbhc_cfg.button_jack, 0,
+                    SND_JACK_BTN_0);
+            printk(DBGMSK_BL_G4"----------[P02 Button release]   p02_headset_status=%d---------- \n",p02_headset_status);
+            p02_button_state = 0;
+        }
+    }
+
+}
+//Bruno++
+
+//Bruno++ Audio debug mode
+#ifdef  CONFIG_PROC_FS
+#define Audio_debug_PROC_FILE  "driver/audio_debug"
+static struct proc_dir_entry *audio_debug_proc_file;
+
+#include <linux/syscalls.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+static mm_segment_t oldfs;
+static void initKernelEnv(void)
+{
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+}
+
+static void deinitKernelEnv(void)
+{
+    set_fs(oldfs);
+}
+
+
+static int tabla_reg_dump[TABLA_CACHE_SIZE] = {
+        TABLA_A_CHIP_CTL,
+        TABLA_A_CHIP_STATUS,
+        TABLA_A_CHIP_ID_BYTE_0,
+        TABLA_A_CHIP_ID_BYTE_1,
+        TABLA_A_CHIP_ID_BYTE_2,
+        TABLA_A_CHIP_ID_BYTE_3,
+        TABLA_A_CHIP_VERSION,
+
+        TABLA_A_SB_VERSION,
+
+        TABLA_A_SLAVE_ID_1,
+        TABLA_A_SLAVE_ID_2,
+        TABLA_A_SLAVE_ID_3,
+
+        TABLA_A_PIN_CTL_OE0,
+        TABLA_A_PIN_CTL_OE1,
+        TABLA_A_PIN_CTL_DATA0,
+        TABLA_A_PIN_CTL_DATA1,
+
+        TABLA_A_HDRIVE_GENERIC,
+        TABLA_A_HDRIVE_OVERRIDE,
+
+        TABLA_A_ANA_CSR_WAIT_STATE,
+
+        TABLA_A_PROCESS_MONITOR_CTL0,
+        TABLA_A_PROCESS_MONITOR_CTL1,
+        TABLA_A_PROCESS_MONITOR_CTL2,
+        TABLA_A_PROCESS_MONITOR_CTL3,
+
+        TABLA_A_QFUSE_CTL,
+        TABLA_A_QFUSE_STATUS,
+        TABLA_A_QFUSE_DATA_OUT0,
+        TABLA_A_QFUSE_DATA_OUT1,
+        TABLA_A_QFUSE_DATA_OUT2,
+        TABLA_A_QFUSE_DATA_OUT3,
+
+        TABLA_A_CDC_CTL,
+
+        TABLA_A_LEAKAGE_CTL,
+
+        TABLA_A_INTR_MODE,
+        TABLA_A_INTR_MASK0,
+        TABLA_A_INTR_MASK1,
+        TABLA_A_INTR_MASK2,
+        TABLA_A_INTR_STATUS0,
+        TABLA_A_INTR_STATUS1,
+        TABLA_A_INTR_STATUS2,
+        TABLA_A_INTR_CLEAR0,
+        TABLA_A_INTR_CLEAR1,
+        TABLA_A_INTR_CLEAR2,
+        TABLA_A_INTR_LEVEL0,
+        TABLA_A_INTR_LEVEL1,
+        TABLA_A_INTR_LEVEL2,
+        TABLA_A_INTR_TEST0,
+        TABLA_A_INTR_TEST1,
+        TABLA_A_INTR_TEST2,
+        TABLA_A_INTR_SET0,
+        TABLA_A_INTR_SET1,
+        TABLA_A_INTR_SET2,
+
+        TABLA_A_CDC_TX_I2S_SCK_MODE,
+        TABLA_A_CDC_TX_I2S_WS_MODE,
+        TABLA_A_CDC_DMIC_DATA0_MODE,
+        TABLA_A_CDC_DMIC_CLK0_MODE,
+        TABLA_A_CDC_DMIC_DATA1_MODE,
+        TABLA_A_CDC_DMIC_CLK1_MODE,
+        TABLA_A_CDC_RX_I2S_SCK_MODE,
+        TABLA_A_CDC_RX_I2S_WS_MODE,
+        TABLA_A_CDC_DMIC_DATA2_MODE,
+        TABLA_A_CDC_DMIC_CLK2_MODE,
+        TABLA_A_CDC_INTR_MODE,
+
+        TABLA_A_BIAS_REF_CTL,
+        TABLA_A_BIAS_CENTRAL_BG_CTL,
+        TABLA_A_BIAS_PRECHRG_CTL,
+        TABLA_A_BIAS_CURR_CTL_1,
+        TABLA_A_BIAS_CURR_CTL_2,
+        TABLA_A_BIAS_CONFIG_MODE_BG_CTL,
+        TABLA_A_BIAS_BG_STATUS,
+
+        TABLA_A_CLK_BUFF_EN1,
+        TABLA_A_CLK_BUFF_EN2,
+
+        TABLA_A_LDO_H_MODE_1,
+        TABLA_A_LDO_H_MODE_2,
+        TABLA_A_LDO_H_LOOP_CTL,
+        TABLA_A_LDO_H_COMP_1,
+        TABLA_A_LDO_H_COMP_2,
+        TABLA_A_LDO_H_BIAS_1,
+        TABLA_A_LDO_H_BIAS_2,
+        TABLA_A_LDO_H_BIAS_3,
+        TABLA_A_LDO_L_MODE_1,
+        TABLA_A_LDO_L_MODE_2,
+        TABLA_A_LDO_L_LOOP_CTL,
+        TABLA_A_LDO_L_COMP_1,
+        TABLA_A_LDO_L_COMP_2,
+        TABLA_A_LDO_L_BIAS_1,
+        TABLA_A_LDO_L_BIAS_2,
+        TABLA_A_LDO_L_BIAS_3,
+
+        TABLA_A_MICB_CFILT_1_CTL,
+        TABLA_A_MICB_CFILT_1_VAL,
+        TABLA_A_MICB_CFILT_1_PRECHRG,
+        TABLA_A_MICB_1_CTL,
+        TABLA_A_MICB_1_INT_RBIAS,
+        TABLA_A_MICB_1_MBHC,
+        TABLA_A_MICB_CFILT_2_CTL,
+        TABLA_A_MICB_CFILT_2_VAL,
+        TABLA_A_MICB_CFILT_2_PRECHRG,
+        TABLA_A_MICB_2_CTL,
+        TABLA_A_MICB_2_INT_RBIAS,
+        TABLA_A_MICB_2_MBHC,
+        TABLA_A_MICB_CFILT_3_CTL,
+        TABLA_A_MICB_CFILT_3_VAL,
+        TABLA_A_MICB_CFILT_3_PRECHRG,
+        TABLA_A_MICB_3_CTL,
+        TABLA_A_MICB_3_INT_RBIAS,
+        TABLA_A_MICB_3_MBHC,
+        TABLA_2_A_MICB_4_CTL,
+        TABLA_2_A_MICB_4_INT_RBIAS,
+        TABLA_2_A_MICB_4_MBHC,
+
+        TABLA_A_TX_COM_BIAS,
+
+        TABLA_A_MBHC_SCALING_MUX_1,
+        TABLA_A_MBHC_SCALING_MUX_2,
+
+        TABLA_A_TX_SUP_SWITCH_CTRL_1,
+        TABLA_A_TX_SUP_SWITCH_CTRL_2,
+
+        TABLA_A_TX_1_2_EN,
+        TABLA_A_TX_1_2_TEST_EN,
+        TABLA_A_TX_1_2_ADC_CH1,
+        TABLA_A_TX_1_2_ADC_CH2,
+        TABLA_A_TX_1_2_ATEST_REFCTRL,
+        TABLA_A_TX_1_2_TEST_CTL,
+        TABLA_A_TX_1_2_TEST_BLOCK_EN,
+        TABLA_A_TX_1_2_TXFE_CLKDIV,
+        TABLA_A_TX_1_2_SAR_ERR_CH1,
+        TABLA_A_TX_1_2_SAR_ERR_CH2,
+        TABLA_A_TX_3_4_EN,
+        TABLA_A_TX_3_4_TEST_EN,
+        TABLA_A_TX_3_4_ADC_CH3,
+        TABLA_A_TX_3_4_ADC_CH4,
+        TABLA_A_TX_3_4_ATEST_REFCTRL,
+        TABLA_A_TX_3_4_TEST_CTL,
+        TABLA_A_TX_3_4_TEST_BLOCK_EN,
+        TABLA_A_TX_3_4_TXFE_CKDIV,
+        TABLA_A_TX_3_4_SAR_ERR_CH3,
+        TABLA_A_TX_3_4_SAR_ERR_CH4,
+        TABLA_A_TX_5_6_EN,
+        TABLA_A_TX_5_6_TEST_EN,
+        TABLA_A_TX_5_6_ADC_CH5,
+        TABLA_A_TX_5_6_ADC_CH6,
+        TABLA_A_TX_5_6_ATEST_REFCTRL,
+        TABLA_A_TX_5_6_TEST_CTL,
+        TABLA_A_TX_5_6_TEST_BLOCK_EN,
+        TABLA_A_TX_5_6_TXFE_CKDIV,
+        TABLA_A_TX_5_6_SAR_ERR_CH5,
+        TABLA_A_TX_5_6_SAR_ERR_CH6,
+        TABLA_A_TX_7_MBHC_EN,
+        TABLA_A_TX_7_MBHC_ATEST_REFCTRL,
+        TABLA_A_TX_7_MBHC_ADC,
+        TABLA_A_TX_7_MBHC_TEST_CTL,
+        TABLA_A_TX_7_MBHC_SAR_ERR,
+        TABLA_A_TX_7_TXFE_CLKDIV,
+
+        TABLA_A_AUX_COM_CTL,
+        TABLA_A_AUX_COM_ATEST,
+        TABLA_A_AUX_L_EN,
+        TABLA_A_AUX_L_GAIN,
+        TABLA_A_AUX_L_PA_CONN,
+        TABLA_A_AUX_L_PA_CONN_INV,
+        TABLA_A_AUX_R_EN,
+        TABLA_A_AUX_R_GAIN,
+        TABLA_A_AUX_R_PA_CONN,
+        TABLA_A_AUX_R_PA_CONN_INV,
+
+        TABLA_A_CP_EN,
+        TABLA_A_CP_CLK,
+        TABLA_A_CP_STATIC,
+        TABLA_A_CP_DCC1,
+        TABLA_A_CP_DCC3,
+        TABLA_A_CP_ATEST,
+        TABLA_A_CP_DTEST,
+
+        TABLA_A_RX_COM_TIMER_DIV,
+        TABLA_A_RX_COM_OCP_CTL,
+        TABLA_A_RX_COM_OCP_COUNT,
+        TABLA_A_RX_COM_DAC_CTL,
+        TABLA_A_RX_COM_BIAS,
+        TABLA_A_RX_HPH_BIAS_PA,
+        TABLA_A_RX_HPH_BIAS_LDO,
+        TABLA_A_RX_HPH_BIAS_CNP,
+        TABLA_A_RX_HPH_BIAS_WG,
+        TABLA_A_RX_HPH_OCP_CTL,
+        TABLA_A_RX_HPH_CNP_EN,
+        TABLA_A_RX_HPH_CNP_WG_CTL,
+        TABLA_A_RX_HPH_CNP_WG_TIME,
+        TABLA_A_RX_HPH_L_GAIN,
+        TABLA_A_RX_HPH_L_TEST,
+        TABLA_A_RX_HPH_L_PA_CTL,
+        TABLA_A_RX_HPH_L_DAC_CTL,
+        TABLA_A_RX_HPH_L_ATEST,
+        TABLA_A_RX_HPH_L_STATUS,
+        TABLA_A_RX_HPH_R_GAIN,
+        TABLA_A_RX_HPH_R_TEST,
+        TABLA_A_RX_HPH_R_PA_CTL,
+        TABLA_A_RX_HPH_R_DAC_CTL,
+        TABLA_A_RX_HPH_R_ATEST,
+        TABLA_A_RX_HPH_R_STATUS,
+        TABLA_A_RX_EAR_BIAS_PA,
+        TABLA_A_RX_EAR_BIAS_CMBUFF,
+        TABLA_A_RX_EAR_EN,
+        TABLA_A_RX_EAR_GAIN,
+        TABLA_A_RX_EAR_CMBUFF,
+        TABLA_A_RX_EAR_ICTL,
+        TABLA_A_RX_EAR_CCOMP,
+        TABLA_A_RX_EAR_VCM,
+        TABLA_A_RX_EAR_CNP,
+        TABLA_A_RX_EAR_ATEST,
+        TABLA_A_RX_EAR_STATUS,
+        TABLA_A_RX_LINE_BIAS_PA,
+        TABLA_A_RX_LINE_BIAS_DAC,
+        TABLA_A_RX_LINE_BIAS_CNP,
+        TABLA_A_RX_LINE_COM,
+        TABLA_A_RX_LINE_CNP_EN,
+        TABLA_A_RX_LINE_CNP_WG_CTL,
+        TABLA_A_RX_LINE_CNP_WG_TIME,
+        TABLA_A_RX_LINE_1_GAIN,
+        TABLA_A_RX_LINE_1_TEST,
+        TABLA_A_RX_LINE_1_DAC_CTL,
+        TABLA_A_RX_LINE_1_STATUS,
+        TABLA_A_RX_LINE_2_GAIN,
+        TABLA_A_RX_LINE_2_TEST,
+        TABLA_A_RX_LINE_2_DAC_CTL,
+        TABLA_A_RX_LINE_2_STATUS,
+        TABLA_A_RX_LINE_3_GAIN,
+        TABLA_A_RX_LINE_3_TEST,
+        TABLA_A_RX_LINE_3_DAC_CTL,
+        TABLA_A_RX_LINE_3_STATUS,
+        TABLA_A_RX_LINE_4_GAIN,
+        TABLA_A_RX_LINE_4_TEST,
+        TABLA_A_RX_LINE_4_DAC_CTL,
+        TABLA_A_RX_LINE_4_STATUS,
+        TABLA_A_RX_LINE_5_GAIN,
+        TABLA_A_RX_LINE_5_TEST,
+        TABLA_A_RX_LINE_5_DAC_CTL,
+        TABLA_A_RX_LINE_5_STATUS,
+        TABLA_A_RX_LINE_CNP_DBG,
+
+        TABLA_A_MBHC_HPH,
+
+        TABLA_A_CONFIG_MODE_FREQ,
+        TABLA_A_CONFIG_MODE_TEST,
+        TABLA_A_CONFIG_MODE_STATUS,
+        TABLA_A_CONFIG_MODE_TUNER,
+
+        TABLA_A_CDC_ANC1_CTL,
+        TABLA_A_CDC_ANC1_SHIFT,
+        TABLA_A_CDC_ANC1_FILT1_B1_CTL,
+        TABLA_A_CDC_ANC1_FILT1_B2_CTL,
+        TABLA_A_CDC_ANC1_FILT1_B3_CTL,
+        TABLA_A_CDC_ANC1_FILT1_B4_CTL,
+        TABLA_A_CDC_ANC1_FILT2_B1_CTL,
+        TABLA_A_CDC_ANC1_FILT2_B2_CTL,
+        TABLA_A_CDC_ANC1_FILT2_B3_CTL,
+        TABLA_A_CDC_ANC1_SPARE,
+        TABLA_A_CDC_ANC1_FILT3_CTL,
+        TABLA_A_CDC_ANC1_FILT4_CTL,
+
+        TABLA_A_CDC_TX1_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX2_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX3_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX4_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX5_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX6_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX7_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX8_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX9_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX10_VOL_CTL_TIMER,
+        TABLA_A_CDC_TX1_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX2_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX3_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX4_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX5_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX6_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX7_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX8_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX9_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX10_VOL_CTL_GAIN,
+        TABLA_A_CDC_TX1_VOL_CTL_CFG,
+        TABLA_A_CDC_TX2_VOL_CTL_CFG,
+        TABLA_A_CDC_TX3_VOL_CTL_CFG,
+        TABLA_A_CDC_TX4_VOL_CTL_CFG,
+        TABLA_A_CDC_TX5_VOL_CTL_CFG,
+        TABLA_A_CDC_TX6_VOL_CTL_CFG,
+        TABLA_A_CDC_TX7_VOL_CTL_CFG,
+        TABLA_A_CDC_TX8_VOL_CTL_CFG,
+        TABLA_A_CDC_TX9_VOL_CTL_CFG,
+        TABLA_A_CDC_TX10_VOL_CTL_CFG,
+        TABLA_A_CDC_TX1_MUX_CTL,
+        TABLA_A_CDC_TX2_MUX_CTL,
+        TABLA_A_CDC_TX3_MUX_CTL,
+        TABLA_A_CDC_TX4_MUX_CTL,
+        TABLA_A_CDC_TX5_MUX_CTL,
+        TABLA_A_CDC_TX6_MUX_CTL,
+        TABLA_A_CDC_TX7_MUX_CTL,
+        TABLA_A_CDC_TX8_MUX_CTL,
+        TABLA_A_CDC_TX9_MUX_CTL,
+        TABLA_A_CDC_TX10_MUX_CTL,
+        TABLA_A_CDC_TX1_CLK_FS_CTL,
+        TABLA_A_CDC_TX2_CLK_FS_CTL,
+        TABLA_A_CDC_TX3_CLK_FS_CTL,
+        TABLA_A_CDC_TX4_CLK_FS_CTL,
+        TABLA_A_CDC_TX5_CLK_FS_CTL,
+        TABLA_A_CDC_TX6_CLK_FS_CTL,
+        TABLA_A_CDC_TX7_CLK_FS_CTL,
+        TABLA_A_CDC_TX8_CLK_FS_CTL,
+        TABLA_A_CDC_TX9_CLK_FS_CTL,
+        TABLA_A_CDC_TX10_CLK_FS_CTL,
+        TABLA_A_CDC_TX1_DMIC_CTL,
+        TABLA_A_CDC_TX2_DMIC_CTL,
+        TABLA_A_CDC_TX3_DMIC_CTL,
+        TABLA_A_CDC_TX4_DMIC_CTL,
+        TABLA_A_CDC_TX5_DMIC_CTL,
+        TABLA_A_CDC_TX6_DMIC_CTL,
+        TABLA_A_CDC_TX7_DMIC_CTL,
+        TABLA_A_CDC_TX8_DMIC_CTL,
+        TABLA_A_CDC_TX9_DMIC_CTL,
+        TABLA_A_CDC_TX10_DMIC_CTL,
+
+        TABLA_A_CDC_ANC2_CTL,
+        TABLA_A_CDC_ANC2_SHIFT,
+        TABLA_A_CDC_ANC2_FILT1_B1_CTL,
+        TABLA_A_CDC_ANC2_FILT1_B2_CTL,
+        TABLA_A_CDC_ANC2_FILT1_B3_CTL,
+        TABLA_A_CDC_ANC2_FILT1_B4_CTL,
+        TABLA_A_CDC_ANC2_FILT2_B1_CTL,
+        TABLA_A_CDC_ANC2_FILT2_B2_CTL,
+        TABLA_A_CDC_ANC2_FILT2_B3_CTL,
+        TABLA_A_CDC_ANC2_SPARE,
+        TABLA_A_CDC_ANC2_FILT3_CTL,
+        TABLA_A_CDC_ANC2_FILT4_CTL,
+
+        TABLA_A_CDC_SRC1_PDA_CFG,
+        TABLA_A_CDC_SRC2_PDA_CFG,
+        TABLA_A_CDC_SRC1_FS_CTL,
+        TABLA_A_CDC_SRC2_FS_CTL,
+
+        TABLA_A_CDC_RX1_B1_CTL,
+        TABLA_A_CDC_RX2_B1_CTL,
+        TABLA_A_CDC_RX3_B1_CTL,
+        TABLA_A_CDC_RX4_B1_CTL,
+        TABLA_A_CDC_RX5_B1_CTL,
+        TABLA_A_CDC_RX6_B1_CTL,
+        TABLA_A_CDC_RX7_B1_CTL,
+        TABLA_A_CDC_RX1_B2_CTL,
+        TABLA_A_CDC_RX2_B2_CTL,
+        TABLA_A_CDC_RX3_B2_CTL,
+        TABLA_A_CDC_RX4_B2_CTL,
+        TABLA_A_CDC_RX5_B2_CTL,
+        TABLA_A_CDC_RX6_B2_CTL,
+        TABLA_A_CDC_RX7_B2_CTL,
+        TABLA_A_CDC_RX1_B3_CTL,
+        TABLA_A_CDC_RX2_B3_CTL,
+        TABLA_A_CDC_RX3_B3_CTL,
+        TABLA_A_CDC_RX4_B3_CTL,
+        TABLA_A_CDC_RX5_B3_CTL,
+        TABLA_A_CDC_RX6_B3_CTL,
+        TABLA_A_CDC_RX7_B3_CTL,
+        TABLA_A_CDC_RX1_B4_CTL,
+        TABLA_A_CDC_RX2_B4_CTL,
+        TABLA_A_CDC_RX3_B4_CTL,
+        TABLA_A_CDC_RX4_B4_CTL,
+        TABLA_A_CDC_RX5_B4_CTL,
+        TABLA_A_CDC_RX6_B4_CTL,
+        TABLA_A_CDC_RX7_B4_CTL,
+        TABLA_A_CDC_RX1_B5_CTL,
+        TABLA_A_CDC_RX2_B5_CTL,
+        TABLA_A_CDC_RX3_B5_CTL,
+        TABLA_A_CDC_RX4_B5_CTL,
+        TABLA_A_CDC_RX5_B5_CTL,
+        TABLA_A_CDC_RX6_B5_CTL,
+        TABLA_A_CDC_RX7_B5_CTL,
+        TABLA_A_CDC_RX1_B6_CTL,
+        TABLA_A_CDC_RX2_B6_CTL,
+        TABLA_A_CDC_RX3_B6_CTL,
+        TABLA_A_CDC_RX4_B6_CTL,
+        TABLA_A_CDC_RX5_B6_CTL,
+        TABLA_A_CDC_RX6_B6_CTL,
+        TABLA_A_CDC_RX7_B6_CTL,
+        TABLA_A_CDC_RX1_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX2_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX3_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX4_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX5_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX6_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX7_VOL_CTL_B1_CTL,
+        TABLA_A_CDC_RX1_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX2_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX3_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX4_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX5_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX6_VOL_CTL_B2_CTL,
+        TABLA_A_CDC_RX7_VOL_CTL_B2_CTL,
+
+        TABLA_A_CDC_CLK_ANC_RESET_CTL,
+        TABLA_A_CDC_CLK_RX_RESET_CTL,
+        TABLA_A_CDC_CLK_TX_RESET_B1_CTL,
+        TABLA_A_CDC_CLK_TX_RESET_B2_CTL,
+        TABLA_A_CDC_CLK_DMIC_CTL,
+        TABLA_A_CDC_CLK_RX_I2S_CTL,
+        TABLA_A_CDC_CLK_TX_I2S_CTL,
+        TABLA_A_CDC_CLK_OTHR_RESET_CTL,
+        TABLA_A_CDC_CLK_TX_CLK_EN_B1_CTL,
+        TABLA_A_CDC_CLK_TX_CLK_EN_B2_CTL,
+        TABLA_A_CDC_CLK_OTHR_CTL,
+        TABLA_A_CDC_CLK_RDAC_CLK_EN_CTL,
+        TABLA_A_CDC_CLK_ANC_CLK_EN_CTL,
+        TABLA_A_CDC_CLK_RX_B1_CTL,
+        TABLA_A_CDC_CLK_RX_B2_CTL,
+        TABLA_A_CDC_CLK_MCLK_CTL,
+        TABLA_A_CDC_CLK_PDM_CTL,
+        TABLA_A_CDC_CLK_SD_CTL,
+
+        TABLA_A_CDC_CLSG_FREQ_THRESH_B1_CTL,
+        TABLA_A_CDC_CLSG_FREQ_THRESH_B2_CTL,
+        TABLA_A_CDC_CLSG_FREQ_THRESH_B3_CTL,
+        TABLA_A_CDC_CLSG_FREQ_THRESH_B4_CTL,
+        TABLA_A_CDC_CLSG_GAIN_THRESH_CTL,
+        TABLA_A_CDC_CLSG_TIMER_B1_CFG,
+        TABLA_A_CDC_CLSG_TIMER_B2_CFG,
+        TABLA_A_CDC_CLSG_CTL,
+
+        TABLA_A_CDC_IIR1_GAIN_B1_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B1_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B2_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B2_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B3_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B3_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B4_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B4_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B5_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B5_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B6_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B6_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B7_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B7_CTL,
+        TABLA_A_CDC_IIR1_GAIN_B8_CTL,
+        TABLA_A_CDC_IIR2_GAIN_B8_CTL,
+        TABLA_A_CDC_IIR1_CTL,
+        TABLA_A_CDC_IIR2_CTL,
+        TABLA_A_CDC_IIR1_GAIN_TIMER_CTL,
+        TABLA_A_CDC_IIR2_GAIN_TIMER_CTL,
+        TABLA_A_CDC_IIR1_COEF_B1_CTL,
+        TABLA_A_CDC_IIR2_COEF_B1_CTL,
+        TABLA_A_CDC_IIR1_COEF_B2_CTL,
+        TABLA_A_CDC_IIR2_COEF_B2_CTL,
+        TABLA_A_CDC_IIR1_COEF_B3_CTL,
+        TABLA_A_CDC_IIR2_COEF_B3_CTL,
+        TABLA_A_CDC_IIR1_COEF_B4_CTL,
+        TABLA_A_CDC_IIR2_COEF_B4_CTL,
+        TABLA_A_CDC_IIR1_COEF_B5_CTL,
+        TABLA_A_CDC_IIR2_COEF_B5_CTL,
+
+        TABLA_A_CDC_TOP_GAIN_UPDATE,
+
+        TABLA_A_CDC_DEBUG_B1_CTL,
+        TABLA_A_CDC_DEBUG_B2_CTL,
+        TABLA_A_CDC_DEBUG_B3_CTL,
+        TABLA_A_CDC_DEBUG_B4_CTL,
+        TABLA_A_CDC_DEBUG_B5_CTL,
+        TABLA_A_CDC_DEBUG_B6_CTL,
+
+        TABLA_A_CDC_CONN_RX1_B1_CTL,
+        TABLA_A_CDC_CONN_RX1_B2_CTL,
+        TABLA_A_CDC_CONN_RX1_B3_CTL,
+        TABLA_A_CDC_CONN_RX2_B1_CTL,
+        TABLA_A_CDC_CONN_RX2_B2_CTL,
+        TABLA_A_CDC_CONN_RX2_B3_CTL,
+        TABLA_A_CDC_CONN_RX3_B1_CTL,
+        TABLA_A_CDC_CONN_RX3_B2_CTL,
+        TABLA_A_CDC_CONN_RX3_B3_CTL,
+        TABLA_A_CDC_CONN_RX4_B1_CTL,
+        TABLA_A_CDC_CONN_RX4_B2_CTL,
+        TABLA_A_CDC_CONN_RX5_B1_CTL,
+        TABLA_A_CDC_CONN_RX5_B2_CTL,
+        TABLA_A_CDC_CONN_RX6_B1_CTL,
+        TABLA_A_CDC_CONN_RX6_B2_CTL,
+        TABLA_A_CDC_CONN_RX7_B1_CTL,
+        TABLA_A_CDC_CONN_RX7_B2_CTL,
+        TABLA_A_CDC_CONN_ANC_B1_CTL,
+        TABLA_A_CDC_CONN_ANC_B2_CTL,
+        TABLA_A_CDC_CONN_TX_B1_CTL,
+        TABLA_A_CDC_CONN_TX_B2_CTL,
+        TABLA_A_CDC_CONN_TX_B3_CTL,
+        TABLA_A_CDC_CONN_TX_B4_CTL,
+        TABLA_A_CDC_CONN_EQ1_B1_CTL,
+        TABLA_A_CDC_CONN_EQ1_B2_CTL,
+        TABLA_A_CDC_CONN_EQ1_B3_CTL,
+        TABLA_A_CDC_CONN_EQ1_B4_CTL,
+        TABLA_A_CDC_CONN_EQ2_B1_CTL,
+        TABLA_A_CDC_CONN_EQ2_B2_CTL,
+        TABLA_A_CDC_CONN_EQ2_B3_CTL,
+        TABLA_A_CDC_CONN_EQ2_B4_CTL,
+        TABLA_A_CDC_CONN_SRC1_B1_CTL,
+        TABLA_A_CDC_CONN_SRC1_B2_CTL,
+        TABLA_A_CDC_CONN_SRC2_B1_CTL,
+        TABLA_A_CDC_CONN_SRC2_B2_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B1_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B2_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B3_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B4_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B5_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B6_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B7_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B8_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B9_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B10_CTL,
+        TABLA_A_CDC_CONN_TX_SB_B11_CTL,
+        TABLA_A_CDC_CONN_RX_SB_B1_CTL,
+        TABLA_A_CDC_CONN_RX_SB_B2_CTL,
+        TABLA_A_CDC_CONN_CLSG_CTL,
+        TABLA_A_CDC_CONN_SPARE,
+
+        TABLA_A_CDC_MBHC_EN_CTL,
+        TABLA_A_CDC_MBHC_FEATURE_B1_CFG,
+        TABLA_A_CDC_MBHC_FEATURE_B2_CFG,
+        TABLA_A_CDC_MBHC_TIMER_B1_CTL,
+        TABLA_A_CDC_MBHC_TIMER_B2_CTL,
+        TABLA_A_CDC_MBHC_TIMER_B3_CTL,
+        TABLA_A_CDC_MBHC_TIMER_B4_CTL,
+        TABLA_A_CDC_MBHC_TIMER_B5_CTL,
+        TABLA_A_CDC_MBHC_TIMER_B6_CTL,
+        TABLA_A_CDC_MBHC_B1_STATUS,
+        TABLA_A_CDC_MBHC_B2_STATUS,
+        TABLA_A_CDC_MBHC_B3_STATUS,
+        TABLA_A_CDC_MBHC_B4_STATUS,
+        TABLA_A_CDC_MBHC_B5_STATUS,
+        TABLA_A_CDC_MBHC_B1_CTL,
+        TABLA_A_CDC_MBHC_B2_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B1_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B2_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B3_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B4_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B5_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B6_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B7_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B8_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B9_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B10_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B11_CTL,
+        TABLA_A_CDC_MBHC_VOLT_B12_CTL,
+        TABLA_A_CDC_MBHC_CLK_CTL,
+        TABLA_A_CDC_MBHC_INT_CTL,
+        TABLA_A_CDC_MBHC_DEBUG_CTL,
+        TABLA_A_CDC_MBHC_SPARE,
+};
+
+void Dump_wcd9310_reg(void)
+{
+    u32 val, i;
+    for (i=0; i<(sizeof(tabla_reg_dump)/(sizeof(int))); i++)
+    {
+        val = wcd9xxx_reg_read(g_tabla->codec->control_data, tabla_reg_dump[i]);
+        printk("[Audio][wcd9310] read register reg[%x]=[%x]\n", tabla_reg_dump[i], val);
+    }
+}
+EXPORT_SYMBOL(Dump_wcd9310_reg);
+    
+static ssize_t audio_debug_proc_write(struct file *filp, const char *buff, size_t len, loff_t *off)
+{
+    char messages[256];
+    memset(messages, 0, sizeof(messages));
+
+    printk("[Audio Debug] audio_debug_proc_write\n");
+    if (len > 256)
+    {
+        len = 256;
+    }
+    if (copy_from_user(messages, buff, len))
+    {
+        return -EFAULT;
+    }
+    
+    initKernelEnv();
+    if (g_Audio_dbg_mode)
+    {
+        printk("[Audio Debug] already set by tabla_codec_init(), skip!!!\n");
+        g_Audio_dbg_mode = 0;   //let ASUS LOG tool can set audio debug mode dynamically.
+    }
+    else
+    {
+        if(strncmp(messages, "1", 1) == 0)
+        {
+            gpio_direction_output(MSM_CDC_HS_PATH_EN, 0);
+            switch_set_state(&g_tabla->headset_jack->sdev, 0);
+            g_bDebugMode = 1;
+            printk("Audio Debug Mode!!!\n");
+        }
+        else if(strncmp(messages, "0", 1) == 0)
+        {
+            printk("Audio Headset Normal Mode!!!\n");
+            gpio_direction_output(MSM_CDC_HS_PATH_EN, 1);
+            //TIM-switch audio output between headset and speaker++
+            if (headset_mode == a66)
+            {
+                if (gpio_get_value_cansleep(MSM_CDC_HSDetect))
+                {
+                    switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                    gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 0);
+                }
+                else if(!gpio_get_value(MSM_CDC_HSDetect) && gpio_get_value(MSM_CDC_ButtonDetect))//headphone
+                {
+                    switch_set_state(&g_tabla->headset_jack->sdev, 2);
+                    gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 2);
+                }
+                else if(!gpio_get_value(MSM_CDC_HSDetect) && !gpio_get_value(MSM_CDC_ButtonDetect))//headset
+                {
+                    switch_set_state(&g_tabla->headset_jack->sdev, 1);
+                    gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 1);
+                }
+            }
+            else if(headset_mode == p02)
+            {
+                if (p02_headset_status == 0)
+                    switch_set_state(&g_tabla->headset_jack->sdev, 0);
+                else if (p02_headset_status == 1)
+                    switch_set_state(&g_tabla->headset_jack->sdev, 1);
+                else if (p02_headset_status == 2)
+                    switch_set_state(&g_tabla->headset_jack->sdev, 2);
+                    
+            }
+            //TIM-switch audio output between headset and speaker--
+            g_bDebugMode = 0;            
+        }
+    }
+
+    //read register
+    if(strncmp(messages, "read", strlen("read")) == 0)
+    {
+        u32 val, reg_val;
+        sscanf(messages + 5, "%x", &reg_val);
+        val = wcd9xxx_reg_read(g_tabla->codec->control_data, reg_val);
+        printk("[Audio][wcd9310] read register reg[%x]=[%x]\n", reg_val, val);        
+    }
+
+    //write register
+    else if(strncmp(messages, "write", strlen("write")) == 0)
+    {
+        u32 val, reg_val;
+        sscanf(messages + 6, "%x %x", &reg_val, &val);        
+        wcd9xxx_reg_write(g_tabla->codec->control_data, reg_val, val);
+
+        val = wcd9xxx_reg_read(g_tabla->codec->control_data, reg_val);
+        printk("[Audio][wcd9310] write register reg[%x]=[%x]\n", reg_val, val);        
+    }
+
+    //dump register
+    else if(strncmp(messages, "dumpreg", strlen("dumpreg")) == 0)
+    {
+        Dump_wcd9310_reg();
+    }
+
+    deinitKernelEnv(); 
+    return len;
+}
+
+static struct file_operations audio_debug_proc_ops = {
+    //.read = audio_debug_proc_read,
+    .write = audio_debug_proc_write,
+};
+
+static void create_audio_debug_proc_file(void)
+{
+    printk("[Audio] create_audio_debug_proc_file\n");
+    audio_debug_proc_file = create_proc_entry(Audio_debug_PROC_FILE, 0666, NULL);
+    if (audio_debug_proc_file) {
+        audio_debug_proc_file->proc_fops = &audio_debug_proc_ops;
+    } 
+}
+
+static void remove_audio_debug_proc_file(void)
+{
+    extern struct proc_dir_entry proc_root;
+    printk("[Audio] remove_audio_debug_proc_file\n");   
+    remove_proc_entry(Audio_debug_PROC_FILE, &proc_root);
+}
+#endif //#ifdef CONFIG_PROC_FS
+//Bruno++ Audio debug mode
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static void wcd9310_early_suspend(struct early_suspend *handler)
+{
+
+    printk("[wcd9310] ++wcd9310_early_suspend\n");
+    if (g_A60K_hwID == A60K_EVB)
+    {
+        enable_irq_wake(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38));
+        enable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    }
+    else
+    {
+        enable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_HSDetect));
+        enable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    }
+
+    printk("[wcd9310] --wcd9310_early_suspend\n");
+}
+
+
+static void wcd9310_late_resume(struct early_suspend *handler)
+{
+    printk("[wcd9310] ++wcd9310_late_resume\n");
+
+    if (g_A60K_hwID == A60K_EVB)
+    {
+        disable_irq_wake(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38));
+        disable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    }
+    else
+    {
+        disable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_HSDetect));
+        disable_irq_wake(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    }
+    printk("[wcd9310]--wcd9310_late_resume\n");
+}
+
+
+static struct early_suspend wcd9310_early_suspend_desc = {
+    .level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
+    .suspend = wcd9310_early_suspend,
+    .resume = wcd9310_late_resume,
+};
+#endif
+
+//Bruno++
+#if 0
 #ifdef CONFIG_DEBUG_FS
 static int codec_debug_open(struct inode *inode, struct file *file)
 {
@@ -8783,15 +10264,36 @@ static const struct file_operations codec_mbhc_debug_ops = {
 	.read = codec_mbhc_debug_read,
 };
 #endif
+#endif
+//Bruno++
 
 static int tabla_codec_probe(struct snd_soc_codec *codec)
 {
 	struct wcd9xxx *control;
 	struct tabla_priv *tabla;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
+    struct gpio_switch_data *switch_data;	//Bruno++
 	int ret = 0;
 	int i;
 	int ch_cnt;
+	
+	//Bruno++
+    struct pm_gpio param = {
+                .direction      = PM_GPIO_DIR_IN,
+                .output_buffer  = PM_GPIO_OUT_BUF_CMOS,
+                .output_value   = 1,
+                .pull      = PM_GPIO_PULL_UP_30,
+                .vin_sel        = PM_GPIO_VIN_S4,
+                .out_strength   = PM_GPIO_STRENGTH_MED,
+                .function       = PM_GPIO_FUNC_NORMAL,
+                .inv_int_pol    =0,
+                .disable_pin    =0,
+        };
+	//Bruno++
+//ASUS --
+	wake_lock_init(&jack_in_wake_lock, WAKE_LOCK_SUSPEND, "jack_in_lock");
+	printk(KERN_INFO "[PM]Initialize a wakelock of jack_in\r\n");
+//ASUS --
 
 	codec->control_data = dev_get_drvdata(codec->dev->parent);
 	control = codec->control_data;
@@ -8809,6 +10311,30 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 			tx_hpf_corner_freq_callback);
 	}
 
+//ASUS BSP TIM-2011.09.05++setting switch_dev info that is headset dectect++
+    headset_type_workqueue  = create_singlethread_workqueue("HEADSETTYPEWORKQUEUE");
+    INIT_WORK(&headset_type_work, headset_type_func);
+    INIT_WORK(&p02_retry_headset_state_work, p02_retry_headset_state_func);
+    switch_data = kzalloc(sizeof(struct gpio_switch_data), GFP_KERNEL);
+    if (!switch_data)
+        return -ENOMEM;
+//Tim++
+    wake_lock_init(&hs_insertion, WAKE_LOCK_SUSPEND, "hs_insertion");
+    switch_data->sdev.name = "h2w";
+    switch_data->gpio = MSM_CDC_HSDetect;
+    switch_data->name_on = NULL;
+    switch_data->name_off = NULL;
+    switch_data->state_on = NULL;
+    switch_data->state_off = NULL;
+    switch_data->sdev.print_state = NULL;
+
+    ret = switch_dev_register(&switch_data->sdev);
+    if (ret < 0)
+        printk("fail to register switch\n");
+    else
+        printk("success to register switch\n");
+    
+//ASUS BSP TIM-2011.09.05--setting switch_dev info that is headset dectect++
 	/* Make sure mbhc micbias register addresses are zeroed out */
 	memset(&tabla->mbhc_bias_regs, 0,
 		sizeof(struct mbhc_micbias_regs));
@@ -8832,7 +10358,7 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	tabla->hs_polling_irq_prepared = false;
 	mutex_init(&tabla->codec_resource_lock);
 	tabla->codec = codec;
-	tabla->mbhc_state = MBHC_STATE_NONE;
+	//tabla->mbhc_state = MBHC_STATE_NONE;
 	tabla->mbhc_last_resume = 0;
 	for (i = 0; i < COMPANDER_MAX; i++) {
 		tabla->comp_enabled[i] = 0;
@@ -8912,7 +10438,94 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	}
 
 	snd_soc_dapm_sync(dapm);
+	
+//Rice: added for hs detect and button detect
+    tabla->headset_jack = switch_data;
+   
+//TIM++
+    g_tabla = tabla;
+//TIM--
+    INIT_DELAYED_WORK(&tabla->HSwork, hs_detect);
+    INIT_DELAYED_WORK(&tabla->Buttonwork, button_detect);
+    INIT_WORK(&button_press_work, report_press_event);
+    INIT_WORK(&button_release_work, report_release_event);
+#ifdef CONFIG_EEPROM_NUVOTON
+    INIT_WORK(&tabla->fm34_work, fm34_config);		//Bruno++
+#endif
+    ret = gpio_request(MSM_CDC_HSDetect, "CDC HSDetect");
+    if (ret) {
+        pr_err("%s: Error requesting GPIO %d\n", __func__,
+                MSM_CDC_HSDetect);
+        gpio_free(MSM_CDC_HSDetect);
+        return ret;
+    }
+   
+    if (g_A60K_hwID == A60K_EVB)
+    {
+        ret = pm8xxx_gpio_config(MSM_CDC_HSDetect, &param);
+        if (ret)
+            pr_err("%s: Failed to configure gpio %d\n", __func__,
+                    MSM_CDC_HSDetect);
+        else
+            gpio_direction_input(MSM_CDC_HSDetect);
+    }
+    else
+    {
+        gpio_direction_input(MSM_CDC_HSDetect);
+    }  
+ 
+    ret = gpio_request(MSM_CDC_MIC2_BIAS_EN, "CDC MIC2_BIAS_EN");
+    if (ret) {
+        pr_err("%s: Error requesting GPIO %d\n", __func__,
+                MSM_CDC_MIC2_BIAS_EN);
+        gpio_free(MSM_CDC_MIC2_BIAS_EN);
+        return ret;
+    }  
 
+    ret = gpio_request(MSM_CDC_HS_PATH_EN, "CDC HS_PATH_EN");
+    if (ret) {
+        pr_err("%s: Error requesting GPIO %d\n", __func__,
+                MSM_CDC_HS_PATH_EN);
+        gpio_free(MSM_CDC_HS_PATH_EN);
+        return ret;
+    }
+
+    ret = gpio_get_value(MSM_CDC_HSDetect);
+    printk("MSM_CDC_HSDetect is %d!!! \n",ret);
+    
+    
+    ret = gpio_request(MSM_CDC_ButtonDetect, "CDC ButtonDetect");
+    if (ret) {
+        pr_err("%s: Error requesting GPIO %d\n", __func__,
+                MSM_CDC_ButtonDetect);
+        gpio_free(MSM_CDC_ButtonDetect);
+        return ret;
+    }
+    else
+    {
+        gpio_direction_input(MSM_CDC_ButtonDetect);
+    } 
+    ret = request_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect), tabla_button_detect_irq, IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, "ButtonDetect Status IRQ", tabla);
+    //disable_irq(MSM_GPIO_TO_INT(MSM_CDC_ButtonDetect));
+    if (g_A60K_hwID == A60K_EVB)
+    {
+        ret = request_irq(PM8921_GPIO_IRQ(PM8921_IRQ_BASE, 38), tabla_hs_detect_irq, IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, "HSDetect Status IRQ", tabla);
+    }
+    else
+    {
+        ret = request_irq(MSM_GPIO_TO_INT(MSM_CDC_HSDetect), tabla_hs_detect_irq, IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING, "HSDetect Status IRQ", tabla);
+    }
+
+#ifdef CONFIG_HAS_EARLYSUSPEND
+    register_early_suspend( &wcd9310_early_suspend_desc );
+#endif
+//Rice: added for hs detect and button detect	
+//ASUS BSP TIM-2011.09.05++get initial value of headset gpio
+    schedule_delayed_work(&tabla->HSwork, 0);
+//ASUS BSP TIM-2011.09.05--get initial value of headset gpio
+
+//Bruno++
+#if 0
 	ret = wcd9xxx_request_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION,
 		tabla_hs_insert_irq, "Headset insert detect", tabla);
 	if (ret) {
@@ -8945,6 +10558,8 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 			TABLA_IRQ_MBHC_RELEASE);
 		goto err_release_irq;
 	}
+#endif
+//Bruno++
 
 	ret = wcd9xxx_request_irq(codec->control_data, TABLA_IRQ_SLIMBUS,
 		tabla_slimbus_irq, "SLIMBUS Slave", tabla);
@@ -8957,7 +10572,9 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	for (i = 0; i < WCD9XXX_SLIM_NUM_PORT_REG; i++)
 		wcd9xxx_interface_reg_write(codec->control_data,
 			TABLA_SLIM_PGD_PORT_INT_EN0 + i, 0xFF);
-
+			
+//Bruno++			
+#if 0
 	ret = wcd9xxx_request_irq(codec->control_data,
 		TABLA_IRQ_HPH_PA_OCPL_FAULT, tabla_hphl_ocp_irq,
 		"HPH_L OCP detect", tabla);
@@ -8992,7 +10609,8 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 		       ret);
 		goto err_hphr_ocp_irq;
 	}
-
+#endif
+//Bruno++
 	for (i = 0; i < ARRAY_SIZE(tabla_dai); i++) {
 		switch (tabla_dai[i].id) {
 		case AIF1_PB:
@@ -9027,6 +10645,34 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	snd_soc_dapm_sync(dapm);
 	mutex_unlock(&dapm->codec->mutex);
 
+    //Bruno++
+    if (g_Audio_dbg_mode)
+    {
+        printk("[Audio Debug] Set Y from aboot!!!\n");
+        gpio_direction_output(MSM_CDC_HS_PATH_EN, 0);
+        switch_set_state(&tabla->headset_jack->sdev, 0);
+        g_bDebugMode = 1;
+    }
+    else
+    {
+        printk("[Audio Debug] Set N from aboot!!!\n");
+        gpio_direction_output(MSM_CDC_HS_PATH_EN, 1);
+        if (gpio_get_value_cansleep(MSM_CDC_HSDetect))
+        {
+            switch_set_state(&tabla->headset_jack->sdev, 0);
+            gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 0);
+        }
+        else
+        {
+            switch_set_state(&tabla->headset_jack->sdev, 1);
+            gpio_direction_output(MSM_CDC_MIC2_BIAS_EN, 1);
+        }
+        g_bDebugMode = 0;
+    }
+    //Bruno++
+
+//Bruno++           
+#if 0
 #ifdef CONFIG_DEBUG_FS
 	if (ret == 0) {
 		tabla->debugfs_poke =
@@ -9037,34 +10683,43 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 					NULL, tabla, &codec_mbhc_debug_ops);
 	}
 #endif
+#endif
 	codec->ignore_pmdown_time = 1;
 
 	wcd_codec = codec;
+#ifdef  CONFIG_PROC_FS
+    create_audio_debug_proc_file();
+#endif
+//Bruno++
 
 	return ret;
-
+#if 0	//Bruno++
 err_hphr_ocp_irq:
 	wcd9xxx_free_irq(codec->control_data,
 			TABLA_IRQ_HPH_PA_OCPL_FAULT, tabla);
 err_hphl_ocp_irq:
 	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_SLIMBUS, tabla);
+#endif	//Bruno++
 err_slimbus_irq:
-	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_RELEASE, tabla);
+	//wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_RELEASE, tabla);
+#if 0	//Bruno++ 
 err_release_irq:
 	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_POTENTIAL, tabla);
 err_potential_irq:
 	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_REMOVAL, tabla);
 err_remove_irq:
 	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION, tabla);
-err_hwdep:
 err_insert_irq:
 	kfree(tabla->fw_data);
+#endif	//Bruno++
+err_hwdep:
 err_nomem_slimch:
 err_pdata:
 	mutex_destroy(&tabla->codec_resource_lock);
 	kfree(tabla);
 	return ret;
 }
+
 static int tabla_codec_remove(struct snd_soc_codec *codec)
 {
 	int i;
@@ -9074,16 +10729,16 @@ static int tabla_codec_remove(struct snd_soc_codec *codec)
 	wake_lock_destroy(&tabla->irq_resend_wlock);
 
 	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_SLIMBUS, tabla);
-	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_RELEASE, tabla);
-	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_POTENTIAL, tabla);
-	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_REMOVAL, tabla);
-	wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION, tabla);
-	TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
-	tabla_codec_disable_clock_block(codec);
-	TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
-	tabla_codec_enable_bandgap(codec, TABLA_BANDGAP_OFF);
-	if (tabla->mbhc_fw||tabla->mbhc_cal)
-		release_firmware(tabla->mbhc_fw);
+	//wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_RELEASE, tabla);
+	//wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_POTENTIAL, tabla);
+	//wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_REMOVAL, tabla);
+	//wcd9xxx_free_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION, tabla);
+	//TABLA_ACQUIRE_LOCK(tabla->codec_resource_lock);
+	//tabla_codec_disable_clock_block(codec);
+	//TABLA_RELEASE_LOCK(tabla->codec_resource_lock);
+	//tabla_codec_enable_bandgap(codec, TABLA_BANDGAP_OFF);
+	//if (tabla->mbhc_fw)
+	//	release_firmware(tabla->mbhc_fw);
 	for (i = 0; i < ARRAY_SIZE(tabla_dai); i++)
 		kfree(tabla->dai[i].ch_num);
 	mutex_destroy(&tabla->codec_resource_lock);
@@ -9092,7 +10747,14 @@ static int tabla_codec_remove(struct snd_soc_codec *codec)
 	debugfs_remove(tabla->debugfs_mbhc);
 #endif
 	kfree(tabla);
-	kfree(tabla->fw_data);
+//Bruno++	
+#ifdef  CONFIG_PROC_FS
+    remove_audio_debug_proc_file();
+#endif
+#ifdef CONFIG_HAS_EARLYSUSPEND
+    unregister_early_suspend( &wcd9310_early_suspend_desc );
+#endif
+//Bruno++
 	return 0;
 }
 static struct snd_soc_codec_driver soc_codec_dev_tabla = {
@@ -9204,11 +10866,17 @@ static int __init tabla_codec_init(void)
 		if (rtn != 0)
 			platform_driver_unregister(&tabla_codec_driver);
 	}
+#ifdef CONFIG_EEPROM_NUVOTON
+    register_microp_notifier(&headset_p01_notifier);    //Bruno++ P01 headset
+#endif
 	return rtn;
 }
 
 static void __exit tabla_codec_exit(void)
 {
+#ifdef CONFIG_EEPROM_NUVOTON
+    unregister_microp_notifier(&headset_p01_notifier);  //Bruno++ P01 headset
+#endif
 	platform_driver_unregister(&tabla1x_codec_driver);
 	platform_driver_unregister(&tabla_codec_driver);
 }

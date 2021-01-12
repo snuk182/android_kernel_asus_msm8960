@@ -26,6 +26,13 @@ config WAKELOCK
 	bool
 	default y
 
+config FASTBOOT
+        bool "Fast Boot"
+        depends on WAKELOCK
+        default y
+        ---help---
+          Call fast boot handler when the user requested to power off for fast boot.
+
 config HIBERNATE_CALLBACKS
 	bool
 

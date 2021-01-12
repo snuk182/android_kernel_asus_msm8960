@@ -34,6 +34,8 @@
 #include <mach/socinfo.h>
 #include "msm_watchdog.h"
 #include "timer.h"
+#include <linux/asus_global.h>
+extern struct _asus_global asus_global;
 
 #define MODULE_NAME "msm_watchdog"
 
@@ -103,7 +105,7 @@ static int print_all_stacks = 1;
 module_param(print_all_stacks, int,  S_IRUGO | S_IWUSR);
 
 /* Area for context dump in secure mode */
-static void *scm_regsave;
+void *scm_regsave;
 
 /* This variable is used by the ramdump.
  * It holds the physical address to the dump of the CPU registers.
@@ -353,7 +355,8 @@ static void configure_bark_dump(void)
 		if (scm_regsave) {
 			cmd_buf.addr = __pa(scm_regsave);
 			cmd_buf.len  = PAGE_SIZE;
-
+			printk("scm_regsave = 0x%x,cmd_buf.addr = 0x%x\r\n",(unsigned int)scm_regsave,(unsigned int)cmd_buf.addr);
+			asus_global.phycpucontextadd = cmd_buf.addr;
 			ret = scm_call(SCM_SVC_UTIL, SCM_SET_REGSAVE_CMD,
 				       &cmd_buf, sizeof(cmd_buf), NULL, 0);
 			if (ret)
@@ -386,11 +389,15 @@ static void init_watchdog_work(struct work_struct *work)
 	int ret;
 
 	if (has_vic) {
+		pr_info("%s: request irq for apps_wdog_bark\n", __func__);  //adbg++
 		ret = request_irq(msm_wdog_irq, wdog_bark_handler, 0,
 				  "apps_wdog_bark", NULL);
-		if (ret)
+		if (ret) {
+			pr_err("%s: request irq for apps_wdog_bark error: %d\n", __func__, ret);  //adbg++
 			return;
+		}
 	} else if (appsbark_fiq) {
+		pr_info("%s: set_fiq_handler for msm_wdog\n", __func__);  //adbg++
 		claim_fiq(&wdog_fh);
 		set_fiq_handler(&msm_wdog_fiq_start, msm_wdog_fiq_length);
 		stack = (void *)__get_free_pages(GFP_KERNEL, THREAD_SIZE_ORDER);
@@ -410,10 +417,13 @@ static void init_watchdog_work(struct work_struct *work)
 			return;
 		}
 
+		pr_info("%s: request_percpu_irq for apps_wdog_bark\n", __func__);  //adbg++
+
 		/* Must request irq before sending scm command */
 		ret = request_percpu_irq(msm_wdog_irq,
 			wdog_bark_handler, "apps_wdog_bark", percpu_pdata);
 		if (ret) {
+			pr_err("%s: request_percpu_irq for apps_wdog_bark error: %d\n", __func__, ret);  //adbg++
 			free_percpu(percpu_pdata);
 			return;
 		}

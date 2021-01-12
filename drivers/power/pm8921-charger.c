@@ -24,6 +24,7 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/regulator/consumer.h>
 #include <linux/interrupt.h>
+#include <linux/power_supply.h>	//ASUS_BSP +++
 #include <linux/delay.h>
 #include <linux/bitops.h>
 #include <linux/workqueue.h>
@@ -37,6 +38,23 @@
 
 #include <mach/msm_xo.h>
 #include <mach/msm_hsusb.h>
+//#include <mach/pm.h>          //ASUS_BSP eason QCPatch:fix statemachine lookup
+//#include <mach/cpuidle.h>	  //ASUS_BSP eason QCPatch:fix statemachine lookup
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_EEPROM_NUVOTON
+#include <linux/microp_api.h>
+#endif /* CONFIG_EEPROM_NUVOTON */
+#include <linux/asus_bat.h>
+#include <linux/asus_chg.h>
+#ifdef CONFIG_HAS_EARLYSUSPEND
+#include <linux/earlysuspend.h> 
+#endif
+//#include <linux/mutex.h>
+#define CHK_STATUS_CHECK_PERIOD_S	100 //100 S
+#define DELAY_FOR_CHK_STATUS	5// 5S, because the temp state of pmic, will be stable in 2 sec
+#define DELAY_FOR_CHK_STATUS_IN_RESUME	1//DELAY_FOR_CHECK_STATE_IN_RESUME
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 #define CHG_BUCK_CLOCK_CTRL	0x14
 #define CHG_BUCK_CLOCK_CTRL_8038	0xD
@@ -93,13 +111,25 @@
 
 /* check EOC every 10 seconds */
 #define EOC_CHECK_PERIOD_MS	10000
-/* check for USB unplug every 200 msecs */
-#define UNPLUG_CHECK_WAIT_PERIOD_MS 200
+/* check for USB unplug every 200 msecs */  //ASUS_BSP eason QCPatch:Workaround for USB unplug issue
+#define UNPLUG_CHECK_WAIT_PERIOD_MS 200     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue
 #define UNPLUG_CHECK_RAMP_MS 25
 #define USB_TRIM_ENTRIES 16
 
 /* Wake locking time after charger unplugged */
 #define UNPLUG_WAKELOCK_TIME_SEC (2 * HZ)
+
+
+//ASUS BSP +++ Eason Chang add BAT global variable
+#define UPDATE_BATGLOBAL_PERIOD      120       //min
+#define UPDATE_BATGLOBAL_FIRSTTIME   30000     //msecs
+//ASUS BSP --- Eason Chang add BAT global variable
+//Eason if doesn't get correct ADC Vol&Curr at first update Cap show unknow status +++ 
+extern bool g_adc_get_correct_VolCurr;
+//Eason if doesn't get correct ADC Vol&Curr at first update Cap show unknow status ---
+//Eason : when thermal too hot, limit charging current +++ 
+extern void notifyThermalLimit(int thermalnotify);
+//Eason : when thermal too hot, limit charging current ---
 
 enum chg_fsm_state {
 	FSM_STATE_OFF_0 = 0,
@@ -365,6 +395,11 @@ struct pm8921_chg_plug_debounce {
  */
 struct pm8921_chg_chip {
 	struct device			*dev;
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	unsigned int			chg_present;
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	unsigned int			usb_present;
 	unsigned int			dc_present;
 	unsigned int			usb_charger_current;
@@ -400,6 +435,7 @@ struct pm8921_chg_chip {
 	struct power_supply		batt_psy;
 	struct dentry			*dent;
 	struct bms_notify		bms_notify;
+	struct ext_chg_pm8921		*ext;//ASUS BSP Eason_Chang 1030 porting
 	int				*usb_trim_table;
 	bool				ext_charging;
 	bool				ext_charge_done;
@@ -418,12 +454,25 @@ struct pm8921_chg_chip {
 	int				thermal_levels;
 	struct delayed_work		update_heartbeat_work;
 	struct delayed_work		eoc_work;
+	struct delayed_work		unplug_wrkarnd_restore_work;     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue
 	struct delayed_work		unplug_check_work;
+	struct wake_lock		unplug_wrkarnd_restore_wake_lock;//ASUS_BSP eason QCPatch:Workaround for USB unplug issue
 	struct delayed_work		vin_collapse_check_work;
 	struct delayed_work		btc_override_work;
 	struct wake_lock		eoc_wake_lock;
 	enum pm8921_chg_cold_thr	cold_thr;
 	enum pm8921_chg_hot_thr		hot_thr;
+	struct notifier_block		notifier;    //ASUS_BSP eason QCPatch:fix statemachine lookup  
+	//ASUS BSP+++ for chg statue checking  
+	struct workqueue_struct *chg_status_check_wq ;
+	struct delayed_work chg_status_check_work;
+	int chg_state_polling_interval;
+	bool chgdone_reported;
+	bool fastchg_done;
+	//ASUS BSP--- for chg status checking 
+	//ASUS BSP +++ Eason Chang add BAT global variable
+	struct delayed_work update_BATinfo_worker;
+	//ASUS BSP --- Eason Chang add BAT global variable
 	int				rconn_mohm;
 	enum pm8921_chg_led_src_config	led_src_config;
 	bool				host_mode;
@@ -460,6 +509,19 @@ struct pm8921_chg_chip {
 	int				low_batt_shutdown;
 };
 
+///+++ASUS_BSP Eason_Chang  ASUS BAT Update using Global variable
+//int  gBatteryStatus=0;
+static int  gBatteryVol=0;
+static int  gChargeStatus=0;
+static int  gBatteryHealth=0;
+static int  gBatteryPresent=0;
+//int  gBatteryCapacity=50;
+static int  gBatteryCurrent=0;
+static int  gBatteryCurrentMax=0;//Eason: A80 12130 porting
+static int  gBatteryFcc=1520;
+static int  gBatteryTemp=25;
+///---ASUS_BSP Eason_Chang  ASUS BAT Update using Global variable
+
 /* user space parameter to limit usb current */
 static unsigned int usb_max_current;
 /*
@@ -472,6 +534,10 @@ static int charging_disabled;
 static int charging_disabled_therm;
 static int thermal_mitigation;
 
+//ASUS BSP+++ notify BatteryService   
+static int gSaved8921FsmState = FSM_STATE_ON_BAT_3;
+//ASUS BSP--- notify BatteryService 
+
 static int disable_safety_timer;
 module_param(disable_safety_timer, int, 0644);
 static int repeat_count;
@@ -479,6 +545,93 @@ module_param(repeat_count, int, 0644);
 
 static struct pm8921_chg_chip *the_chip;
 static void check_temp_thresholds(struct pm8921_chg_chip *chip);
+
+///+++ASUS_BSP+++ Eason_Chang  ASUS SW gauge
+static struct pm8921_chg_chip *the_chip = NULL;
+static bool asus_charge_done = false;
+//Victor@20120112:for chgdone checking....
+
+///ASUS_BSP +++ Eason_Chang  ASUS BAT Update using Global variable
+void UpdateGlobalValue(void);
+///ASUS_BSP --- Eason_Chang  ASUS BAT Update using Global variable
+
+bool asus_get_charge_done(void)
+{
+	return asus_charge_done;
+}
+static void asus_set_charge_done(void)
+{
+	asus_charge_done = true;
+}
+static void asus_set_not_charge_done(void)
+{
+	asus_charge_done = false;
+}
+// ASUS_BSP +++ SinaChou
+extern int AX_MicroP_isFWSupportP02(void);
+// ASUS_BSP ---
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+static enum asus_chg_src local_chg_src = ASUS_CHG_SRC_UNKNOWN;
+
+static struct pm8921_chg_chip *local_chip = NULL;
+
+#define AC_CHG_CURR 	1500
+#define USB_CHG_CURR 	500
+#define NONE_CHG_CURR 	0
+
+static int is_chg_plugged_in(struct pm8921_chg_chip *chip);
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
+///+++ASUS_BSP--- Eason_Chang  ASUS SW gauge
+
+// Asus BSP Eason_Chang +++ function for AXI_BatteryServiceFacade
+void asus_bat_status_change(void)
+{
+	power_supply_changed(&the_chip->batt_psy);
+}
+
+void asus_chg_set_chg_mode_forBatteryservice(enum asus_chg_src Batteryservice_src)
+{
+    //not really do the set charging....because the work has already done by pm8921
+    //just schedule the delay work to start status checking....
+    //need to prevent 
+    if(g_A60K_hwID >=A66_HW_ID_ER2){
+
+        return;
+    }
+    if(is_chg_plugged_in(the_chip)){
+
+        if (!delayed_work_pending(&the_chip->chg_status_check_work)){
+
+            //for debunce the state of fsm of pmic
+            schedule_delayed_work(&the_chip->chg_status_check_work,
+                          DELAY_FOR_CHK_STATUS*HZ);           
+        }
+
+    }else{
+
+        the_chip->chgdone_reported = false;
+
+        the_chip->fastchg_done = false;
+
+    }
+}
+
+extern void asus_onCableInOut(int src);
+extern void asus_onChargingStop(int chg_stop_reason);
+extern void asus_onChargingStart(void);
+extern void asus_onBatteryFullAlarm(bool isFull);
+// Asus BSP Eason_Chang --- function for AXI_BatteryServiceFacade
+
+
+
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+extern char g_CHG_mode;
+int g_chg_present = 0; //set to no charger as default
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
 
 static void set_appropriate_vbatdet(struct pm8921_chg_chip *chip);
 static void update_soc_scalers(struct pm8921_chg_chip *chip);
@@ -551,6 +704,41 @@ static int pm_chg_masked_write(struct pm8921_chg_chip *chip, u16 addr,
 	}
 	return 0;
 }
+//ASUS_BSP eason QCPatch:fix statemachine lookup +++
+static void pm8921_fix_charger_lockup(struct pm8921_chg_chip *chip)
+{
+	int err;
+	u8 temp;
+
+	temp  = 0xD1;
+	err = pm8xxx_writeb(chip->dev->parent, CHG_TEST, temp);
+	if (err) {
+		pr_err("Error %d writing %d to addr %d\n", err, temp, CHG_TEST);
+		return;
+	}
+
+	temp  = 0xD3;
+	err = pm8xxx_writeb(chip->dev->parent, CHG_TEST, temp);
+	if (err) {
+		pr_err("Error %d writing %d to addr %d\n", err, temp, CHG_TEST);
+		return;
+	}
+
+	temp  = 0xD1;
+	err = pm8xxx_writeb(chip->dev->parent, CHG_TEST, temp);
+	if (err) {
+		pr_err("Error %d writing %d to addr %d\n", err, temp, CHG_TEST);
+		return;
+	}
+
+	temp  = 0xD0;
+	err = pm8xxx_writeb(chip->dev->parent, CHG_TEST, temp);
+	if (err) {
+		pr_err("Error %d writing %d to addr %d\n", err, temp, CHG_TEST);
+		return;
+	}
+}
+//ASUS_BSP eason QCPatch:fix statemachine lookup---
 
 static int pm_chg_get_rt_status(struct pm8921_chg_chip *chip, int irq_id)
 {
@@ -561,13 +749,31 @@ static int pm_chg_get_rt_status(struct pm8921_chg_chip *chip, int irq_id)
 /* Treat OverVoltage/UnderVoltage as source missing */
 static int is_usb_chg_plugged_in(struct pm8921_chg_chip *chip)
 {
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	if (is_chg_plugged_in(chip)&&(chip->usb_present))
+		return 1;
+	else
+		return 0;
+#else
 	return pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 }
 
 /* Treat OverVoltage/UnderVoltage as source missing */
 static int is_dc_chg_plugged_in(struct pm8921_chg_chip *chip)
 {
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	if (is_chg_plugged_in(chip)&&(chip->dc_present))
+		return 1;
+	else
+		return 0;
+#else
 	return pm_chg_get_rt_status(chip, DCIN_VALID_IRQ);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 }
 
 static int is_batfet_closed(struct pm8921_chg_chip *chip)
@@ -1576,6 +1782,26 @@ static int pm8921_chg_is_enabled(struct pm8921_chg_chip *chip, int interrupt)
 	return test_bit(interrupt, chip->enabled_irqs);
 }
 
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+static int is_chg_plugged_in(struct pm8921_chg_chip *chip)
+{
+/*	int pres, ov, uv;
+	
+//TODO: check if just read USBIN_VALID_IRQ is work
+	pres = pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
+	ov = pm_chg_get_rt_status(chip, USBIN_OV_IRQ);
+	uv = pm_chg_get_rt_status(chip, USBIN_UV_IRQ);
+
+	printk("[BAT]pres:%d,ov:%d,uv:%d\n",pres,ov,uv);
+
+	return pres && !ov && !uv;
+*/
+    return pm_chg_get_rt_status(chip, USBIN_VALID_IRQ);
+}
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
 static bool is_ext_charging(struct pm8921_chg_chip *chip)
 {
 	union power_supply_propval ret = {0,};
@@ -1685,6 +1911,7 @@ static char *pm_power_supplied_to[] = {
 };
 
 #define USB_WALL_THRESHOLD_MA	500
+#ifdef CONFIG_MAXIM_8934_CHARGER
 static int pm_power_get_property_mains(struct power_supply *psy,
 				  enum power_supply_property psp,
 				  union power_supply_propval *val)
@@ -1724,6 +1951,7 @@ static int pm_power_get_property_mains(struct power_supply *psy,
 	}
 	return 0;
 }
+#endif
 
 static int disable_aicl(int disable)
 {
@@ -1895,6 +2123,7 @@ static int get_prop_battery_uvolts(struct pm8921_chg_chip *chip)
 	int rc;
 	struct pm8xxx_adc_chan_result result;
 
+    pr_debug("%s()+++",__FUNCTION__);
 	rc = pm8xxx_adc_read(chip->vbat_channel, &result);
 	if (rc) {
 		pr_err("error reading adc channel = %d, rc = %d\n",
@@ -1903,6 +2132,9 @@ static int get_prop_battery_uvolts(struct pm8921_chg_chip *chip)
 	}
 	pr_debug("mvolts phy = %lld meas = 0x%llx\n", result.physical,
 						result.measurement);
+	//ASUS BSP +++ Eason Chang add BAT global variable					
+	gBatteryVol = (int)result.physical;			
+	//ASUS BSP --- Eason Chang add BAT global variable		
 	return (int)result.physical;
 }
 
@@ -1929,6 +2161,9 @@ static int voltage_based_capacity(struct pm8921_chg_chip *chip)
 
 static int get_prop_batt_present(struct pm8921_chg_chip *chip)
 {
+   //ASUS BSP +++ Eason Chang add BAT global variable
+   gBatteryPresent = pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ);
+   //ASUS BSP --- Eason Chang add BAT global variable
 	return pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ);
 }
 
@@ -1977,13 +2212,18 @@ static int get_prop_batt_capacity(struct pm8921_chg_chip *chip)
 		return 100;
 
 	if (!get_prop_batt_present(chip))
+    {//ASUS_BSP Eason   
 		percent_soc = voltage_based_capacity(chip);
+        printk("[BAT][Bms]:battery not present\n");//ASUS_BSP Eason   
+    }//ASUS_BSP Eason           
 	else
 		percent_soc = pm8921_bms_get_percent_charge();
 
 	if (percent_soc == -ENXIO)
+    {//ASUS_BSP Eason      
 		percent_soc = voltage_based_capacity(chip);
-
+        printk("[BAT][Bms]: No such device or address\n");//ASUS_BSP Eason   
+    }//ASUS_BSP Eason       
 	if (!percent_soc && enable_lowbatt_detect) {
 		pr_err("shutdown since battery is 0%%\n");
 		update_disable_charge_state(chip, BIT(DIS_BIT_CHG_SHUTDOWN),
@@ -2025,6 +2265,7 @@ static int get_prop_batt_capacity(struct pm8921_chg_chip *chip)
 
 fail_voltage:
 	chip->recent_reported_soc = percent_soc;
+	printk("[BAT][Bms]:%d\n", percent_soc);//ASUS_BSP Eason 
 	return percent_soc;
 }
 
@@ -2034,6 +2275,10 @@ static int get_prop_batt_current_max(struct pm8921_chg_chip *chip, int *curr)
 	*curr = pm8921_bms_get_current_max();
 	if (*curr == -EINVAL)
 		return -EINVAL;
+
+	//ASUS BSP +++ Eason Chang add BAT global variable
+	gBatteryCurrentMax = (*curr)*1000;
+	//ASUS BSP --- Eason Chang add BAT global variable
 
 	return 0;
 }
@@ -2047,8 +2292,13 @@ static int get_prop_batt_current(struct pm8921_chg_chip *chip, int *curr)
 	if (rc == -ENXIO) {
 		rc = pm8xxx_ccadc_get_battery_current(curr);
 	}
-	if (rc)
+	if (rc) {
 		pr_err("unable to get batt current rc = %d\n", rc);
+	} else {
+		//ASUS BSP +++ Eason Chang add BAT global variable
+		gBatteryCurrent = *curr;
+		//ASUS BSP --- Eason Chang add BAT global variable
+	}
 
 	return rc;
 }
@@ -2060,6 +2310,9 @@ static int get_prop_batt_fcc(struct pm8921_chg_chip *chip)
 	rc = pm8921_bms_get_fcc();
 	if (rc < 0)
 		pr_err("unable to get batt fcc rc = %d\n", rc);
+		//ASUS BSP +++ Eason Chang add BAT global variable
+       gBatteryFcc = rc;
+		//ASUS BSP --- Eason Chang add BAT global variable
 	return rc;
 }
 
@@ -2081,12 +2334,17 @@ static int get_prop_batt_health(struct pm8921_chg_chip *chip)
 
 	temp = pm_chg_get_rt_status(chip, BATTTEMP_HOT_IRQ);
 	if (temp)
+	{
+		gBatteryHealth = POWER_SUPPLY_HEALTH_OVERHEAT;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_HEALTH_OVERHEAT;
-
+	}
 	temp = pm_chg_get_rt_status(chip, BATTTEMP_COLD_IRQ);
 	if (temp)
+	{
+		gBatteryHealth = POWER_SUPPLY_HEALTH_COLD;	//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_HEALTH_COLD;
-
+	}
+	gBatteryHealth = POWER_SUPPLY_HEALTH_GOOD;//ASUS BSP +++ Eason Chang add BAT global variable
 	return POWER_SUPPLY_HEALTH_GOOD;
 }
 
@@ -2095,22 +2353,35 @@ static int get_prop_charge_type(struct pm8921_chg_chip *chip)
 	int temp;
 
 	if (!get_prop_batt_present(chip))
+	{
+		gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_NONE;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_CHARGE_TYPE_NONE;
-
+	}
 	if (is_ext_trickle_charging(chip))
+	{
+		gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_TRICKLE;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
-
+	}
 	if (is_ext_charging(chip))
+	{
+		gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_FAST;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_CHARGE_TYPE_FAST;
+	}
 
 	temp = pm_chg_get_rt_status(chip, TRKLCHG_IRQ);
 	if (temp)
+	{
+		gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_TRICKLE;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
+	}
 
 	temp = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
 	if (temp)
+	{
+		gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_FAST;//ASUS BSP +++ Eason Chang add BAT global variable
 		return POWER_SUPPLY_CHARGE_TYPE_FAST;
-
+	}
+	gChargeStatus = POWER_SUPPLY_CHARGE_TYPE_NONE;//ASUS BSP +++ Eason Chang add BAT global variable
 	return POWER_SUPPLY_CHARGE_TYPE_NONE;
 }
 
@@ -2137,10 +2408,79 @@ static int get_prop_batt_temp(struct pm8921_chg_chip *chip, int *temp)
 		pr_err("BATT_TEMP= %d > 68degC, device will be shutdown\n",
 							(int) result.physical);
 
+ 
+	//carol+, workaround, to avoid auto shutdown for PMIC V1 chip, V2/V3 need to test 
+       if( result.physical > 500 && result.physical < MAX_TOLERABLE_BATT_TEMP_DDC ) 
+       { 
+		pr_err("warning, batt_temp phy = %lld meas = 0x%llx\n", result.physical,
+							result.measurement);
+		result.physical = 300; 
+		pr_err("is_bat_warm=%d, set temp to 30\n", chip->is_bat_warm ); 
+	} 
+	//carol-
+   gBatteryTemp = (int)result.physical;
+
 	*temp = (int)result.physical;
 
 	return rc;
 }
+
+//ASUS BSP +++ Eason Chang add BAT global variable
+void UpdateGlobalValue(void)
+{
+	int curr = 0;
+	int temp = 0;
+
+	pr_debug("[BAT][8921]%s()+++\n",__FUNCTION__);
+	 //asus_bat_report_phone_status(get_prop_batt_status(the_chip));
+	get_prop_battery_uvolts(the_chip);
+	get_prop_batt_health(the_chip);
+	get_prop_charge_type(the_chip);
+	get_prop_batt_present(the_chip);
+    //asus_bat_report_phone_capacity(get_prop_batt_capacity(the_chip));
+	get_prop_batt_current(the_chip, &curr);
+	get_prop_batt_current_max(the_chip, &curr);
+	get_prop_batt_temp(the_chip, &temp);
+	get_prop_batt_fcc(the_chip);
+   pr_debug("[BAT][8921]%s()---\n",__FUNCTION__);
+}
+//ASUS BSP --- Eason Chang add BAT global variable
+
+///+++ASUS_BSP+++ Eason_Chang  ASUS SW gauge
+int get_temp_for_ASUSswgauge(void)
+{ 
+	int ibat = 0;
+  if (the_chip == NULL){
+  		printk("[BAT][SWgauge]%s():the_chip == NULL",__FUNCTION__);
+        return 25;
+  }else{	
+	get_prop_batt_temp(the_chip, &ibat);
+  	return ibat/10;
+  }
+}
+
+int get_voltage_for_ASUSswgauge(void)
+{ 
+  if (the_chip == NULL){
+ 	 	printk("[BAT][SWgauge]%s():the_chip == NULL",__FUNCTION__);
+		return 3700;
+  }else{
+		return get_prop_battery_uvolts(the_chip)/1000;
+  }		
+}
+
+int get_current_for_ASUSswgauge(void)
+{ 
+	int ibat = 0;
+  if (the_chip == NULL){
+  		printk("[BAT][SWgauge]%s():the_chip == NULL",__FUNCTION__);
+		return 500;
+  }else{
+	get_prop_batt_current(the_chip, &ibat);
+        return ibat/1000;
+  }		
+}
+///---ASUS_BSP--- Eason_Chang  ASUS SW gauge
 
 static int calculate_scaled_soc(struct pm8921_chg_chip *chip)
 {
@@ -2267,22 +2607,73 @@ static int pm_batt_power_get_property(struct power_supply *psy,
 	int value;
 	struct pm8921_chg_chip *chip = container_of(psy, struct pm8921_chg_chip,
 								batt_psy);
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	enum asus_bat_charger_cable charger;
+	int bat_status;
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+		bat_status = get_prop_batt_status(chip);
+		// set charger here, not in ac/usb irq context
+		if (chip->usb_present) {
+			charger = ASUS_BAT_CHARGER_USB;
+		} else if (chip->dc_present) {
+			charger = ASUS_BAT_CHARGER_AC;
+		} else if (POWER_SUPPLY_STATUS_CHARGING == bat_status) {
+			// special case: inserted in p01
+			charger = ASUS_BAT_CHARGER_OTHER_BAT;
+		} else {
+			charger = ASUS_BAT_CHARGER_NONE;
+		}
+		asus_bat_report_phone_charger(charger);
+
+		val->intval = asus_bat_report_phone_status(bat_status);
+
+#else
 		val->intval = get_prop_batt_status(chip);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
+        #if 0	
 		val->intval = get_prop_charge_type(chip);
+        #else
+		val->intval = gChargeStatus;
+		pr_debug("POWER_SUPPLY_PROP_CHARGE_TYPE = %d\r\n",val->intval);
+        #endif		
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:
+        #if 0	
 		val->intval = get_prop_batt_health(chip);
+        #else
+		val->intval = gBatteryHealth;
+		pr_debug("POWER_SUPPLY_PROP_HEALTH = %d\r\n",val->intval);
+        #endif		
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+        #if 0
+		val->intval = asus_bat_report_phone_present(get_prop_batt_present(chip));
+		pr_debug("[BAT]%s(), phone bat present val:%d \r\n", __FUNCTION__, val->intval);
+        #else
+		val->intval = gBatteryPresent;
+		pr_debug("POWER_SUPPLY_PROP_PRESENT = %d\r\n",val->intval);
+        #endif		
+#else
 		rc = get_prop_batt_present(chip);
 		if (rc >= 0) {
 			val->intval = rc;
 			rc = 0;
 		}
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
@@ -2294,45 +2685,85 @@ static int pm_batt_power_get_property(struct power_supply *psy,
 		val->intval = chip->min_voltage_mv * 1000;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+#if 0
 		rc = get_prop_battery_uvolts(chip);
 		if (rc >= 0) {
 			val->intval = rc;
 			rc = 0;
 		}
+#else
+		val->intval = gBatteryVol;
+		pr_debug("POWER_SUPPLY_PROP_VOLTAGE_NOW = %d\r\n",val->intval);
+#endif
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+		pr_debug( "[BAT]%s(), POWER_SUPPLY_PROP_VOLTAGE_NOW:%d \r\n", __FUNCTION__, val->intval);
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+
+		val->intval = asus_bat_report_phone_capacity(update_soc(chip));
+		//asus_bat_write_phone_bat_capacity_tofile();
+
+#else
 		val->intval = update_soc(chip);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 		if (val->intval < 0)
 			return val->intval;
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
+#if 0
 		rc = get_prop_batt_current(chip, &value);
 		if (!rc)
-			val->intval = -value;
+			val->intval = value;
+#else
+		val->intval = gBatteryCurrent;
+		pr_debug("POWER_SUPPLY_PROP_CURRENT_NOW = %d\r\n",val->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
+#if 0
 		rc = get_prop_batt_current_max(chip, &value);
 		if (!rc)
 			val->intval = value;
+#else
+		val->intval = gBatteryCurrentMax;
+		pr_debug("POWER_SUPPLY_PROP_CURRENT_NOW_MAX = %d\r\n",val->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
+#if 0
 		rc = get_prop_batt_temp(chip, &value);
 		if (!rc)
 			val->intval = value;
+#else
+		val->intval = gBatteryTemp;
+		pr_debug("POWER_SUPPLY_PROP_TEMP = %d\r\n",val->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		val->intval = pm8921_bms_get_init_fcc();
+        #if 0	
+		val->intval = pm8921_bms_get_init_fcc() * 1000;
 		if (val->intval < 0)
 			return val->intval;
-		else
-			val->intval *= 1000;
+        #else
+		val->intval = gBatteryFcc;
+		pr_debug("POWER_SUPPLY_PROP_ENERGY_FULL val=%d\r\n",val->intval);
+        #endif	
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
+#if 0
 		rc = get_prop_batt_fcc(chip);
 		if (rc >= 0) {
 			val->intval = rc;
 			rc = 0;
 		}
+#else
+		val->intval = gBatteryFcc;
+		pr_debug("POWER_SUPPLY_PROP_CHARGE_FULL val=%d\r\n",val->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		rc = get_prop_batt_charge_now(chip, &value);
@@ -2345,8 +2776,385 @@ static int pm_batt_power_get_property(struct power_supply *psy,
 		rc = -EINVAL;
 	}
 
-	return rc;
+    //Eason if doesn't get correct ADC Vol&Curr at first update Cap show unknow status +++ 
+    if(false == g_adc_get_correct_VolCurr)
+    {
+        return -EINVAL;
+    }else{    
+	    return 0;
+    }
+    //Eason if doesn't get correct ADC Vol&Curr at first update Cap show unknow status ---
 }
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+static void api_phone_bat_power_supply_changed(void)
+{
+	power_supply_changed(&local_chip->batt_psy);
+}
+
+static int api_get_prop_batt_present(void)
+{
+	return get_prop_batt_present(local_chip);
+}
+
+static int api_get_prop_batt_capacity(void)
+{
+	return get_prop_batt_capacity(local_chip);
+}
+
+static int api_get_prop_batt_status(void)
+{
+	return get_prop_batt_status(local_chip);
+}
+
+//ASUS_BSP +++ Eason_Chang "to check if chgin"
+static int api_get_prop_batt_chgin(void)
+{
+	return is_chg_plugged_in(local_chip);
+}
+//ASUS_BSP --- Eason_Chang "to check if chgin"
+
+static int api_get_prop_charge_type(void)
+{
+	return get_prop_charge_type(local_chip);
+
+}
+
+static int api_get_prop_batt_health(void)
+{
+	return get_prop_batt_health(local_chip);
+}
+
+static int api_get_prop_batt_volt(void)
+{
+	return get_prop_battery_uvolts(local_chip);
+}
+
+static int api_get_prop_batt_curr(void)
+{
+	int curr = 0;
+	get_prop_batt_current(local_chip, &curr);
+	return curr;
+}
+
+extern enum asus_chg_src asus_chg_get_chg_mode(void)
+{
+	return local_chg_src;
+}
+
+#ifdef CONFIG_CHARGER_ASUS
+static DEFINE_SPINLOCK(asus_chg_mode_lock);
+#endif /* CONFIG_CHARGER_ASUS */
+//static DEFINE_MUTEX(asus_chg_curr_lock);
+
+/* boot_check_for_set_dc_curr - Even detecting DC plugged in, we should not draw 1500mA during 30s 
+  * from booting. Because it may be just connected to p01 and p01_add not be notified. We should
+  * wait for all state ready to determine if need to set DC charging current.
+  */    
+static bool boot_check_for_set_dc_curr = false;
+
+static void asus_chg_set_dc_curr_work(struct work_struct *work)
+{
+//	mutex_lock(&asus_chg_curr_lock);
+#ifdef CONFIG_EEPROM_NUVOTON
+	int p01_cont = AX_MicroP_IsP01Connected();
+#else
+	int p01_cont = 0;
+#endif /* CONFIG_EEPROM_NUVOTON */
+
+	printk(DBGMSK_BAT_DEBUG "[BAT]%s(), P01 connected:%d \r\n", __FUNCTION__, p01_cont);
+			
+	if ((ASUS_CHG_SRC_DC == local_chg_src) && 
+		(!p01_cont))
+	{
+		pr_debug(DBGMSK_BAT_INFO "[BAT][8921],charging current:%d \r\n", AC_CHG_CURR);	
+		pm8921_charger_vbus_draw(AC_CHG_CURR);		
+	}
+
+	if (!boot_check_for_set_dc_curr) {
+		printk(DBGMSK_BAT_INFO "[BAT]%s(), first time to check if need to set charging dc current after boot. \r\n", __FUNCTION__);
+		boot_check_for_set_dc_curr = true;
+	}
+	return;
+//	mutex_unlock(&asus_chg_curr_lock);
+
+}
+
+//ASUS BSP+++ Eason notify BatteryService   
+#if 0
+static void checkIf8921FsmStateChange(void)
+{
+        int new8921State;
+        bool new8921StateChargig = 0;
+        bool Saved8921StateCharging = 0;
+
+        new8921State = pm_chg_get_fsm_state(the_chip);
+
+        switch(new8921State){
+		case FSM_STATE_ATC_2A:
+		case FSM_STATE_ATC_2B:
+		case FSM_STATE_ON_CHG_AND_BAT_6:
+		case FSM_STATE_FAST_CHG_7:
+		case FSM_STATE_TRKL_CHG_8:
+            	 	new8921StateChargig = 1;
+        	default:
+            	 	new8921StateChargig = 0;
+       }       
+
+        switch(gSaved8921FsmState){
+		case FSM_STATE_ATC_2A:
+		case FSM_STATE_ATC_2B:
+		case FSM_STATE_ON_CHG_AND_BAT_6:
+		case FSM_STATE_FAST_CHG_7:
+		case FSM_STATE_TRKL_CHG_8:
+           	  	 Saved8921StateCharging = 1;
+       		default:
+             	 	Saved8921StateCharging = 0;
+       }       
+
+       if( 1==Saved8921StateCharging  &&  0==new8921StateChargig )
+        		asus_onChargingStop(ex8921FSM_change);
+       if( 0==Saved8921StateCharging  &&  1==new8921StateChargig )
+                        asus_onChargingStart();
+
+       gSaved8921FsmState= printk("state_changed_to=%d\n", pm_chg_get_fsm_state(the_chip));
+}
+#endif
+//ASUS BSP--- Eason notify BatteryService  
+
+static void pm8921_power_supply_changed(struct work_struct *work)
+{
+	printk(DBGMSK_BAT_DEBUG "[BAT] power_supply_changed(all) in %s() \r\n", __FUNCTION__);
+
+    //ASUS BSP+++ Eason notify BatteryService        
+    //checkIf8921FsmStateChange();
+    //ASUS BSP--- Eason notify BatteryService
+
+	//power_supply_changed(&the_chip->batt_psy);//ASUS BSP+++ Eason notify BatteryService 
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+	if (g_CHG_mode) {
+		power_supply_changed(&the_chip->usb_psy);
+		power_supply_changed(&the_chip->dc_psy);
+	}
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+}
+
+DECLARE_DELAYED_WORK(asus_chg_set_dc_curr_worker, asus_chg_set_dc_curr_work);
+
+DECLARE_DELAYED_WORK(pm_ps_changed_work, pm8921_power_supply_changed);
+
+#ifdef CONFIG_CHARGER_ASUS
+//BY default.... it will check the during all the time when charger in
+//Check chg done firse...
+//todo : maybe we can add more 
+void change_chg_statue_check_interval(int interval)
+{
+        the_chip->chg_state_polling_interval = interval;
+        
+	if (delayed_work_pending(&the_chip->chg_status_check_work)) {
+		cancel_delayed_work_sync(&the_chip->chg_status_check_work);
+		schedule_delayed_work(&the_chip->chg_status_check_work, the_chip->chg_state_polling_interval *HZ);
+	} else {
+		schedule_delayed_work(&the_chip->chg_status_check_work, the_chip->chg_state_polling_interval *HZ);
+	}        
+}
+static void chg_status_check_work(struct work_struct *work)
+{
+    unsigned long flags;
+    struct delayed_work *dwork = to_delayed_work(work);
+    struct pm8921_chg_chip *chip = container_of(dwork,
+    			struct pm8921_chg_chip, chg_status_check_work);
+
+        if(g_A60K_hwID >=A66_HW_ID_ER2){
+
+
+            return ;
+        }
+
+        spin_lock_irqsave(&asus_chg_mode_lock, flags);
+
+        if(is_chg_plugged_in(chip)){
+
+            int iterm_programmed;
+
+            int fsm_state = pm_chg_get_fsm_state(chip);
+
+            pm_chg_iterm_get(chip, &iterm_programmed);
+
+            printk("[pm8921]fsm:%d,INSERTED:%d,TEMPOK:%d,CHGHOT:%d,VBATLOW:%d\n"
+                ,fsm_state
+                ,pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ)
+                ,pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ)
+                ,pm_chg_get_rt_status(chip, CHGHOT_IRQ)
+                ,pm_chg_get_rt_status(chip, VBATDET_LOW_IRQ));
+#if 0
+            printk("[pm8921]current:%d,eoc threshold:%d\n"
+                ,(get_prop_batt_current(chip)) / 1000
+                ,iterm_programmed);
+#endif
+            if(chip->chgdone_reported == false){
+
+                if ((fsm_state == FSM_STATE_ON_CHG_HIGHI_1 && pm_chg_get_rt_status(chip, BAT_TEMP_OK_IRQ))
+                    || chip->fastchg_done == true) {
+
+                    printk("[PM8921]charging done!\n");
+
+                    asus_onChargingStop(exCHGDOWN);                    
+
+                    chip->chgdone_reported = true;
+                }
+
+                
+                if (!delayed_work_pending(&chip->chg_status_check_work)){
+                
+                    //for debunce the state of fsm of pmic
+                    schedule_delayed_work(&chip->chg_status_check_work,
+                                  chip->chg_state_polling_interval*HZ);           
+                }
+
+                if (!delayed_work_pending(&chip->eoc_work)) {
+                 	schedule_delayed_work(&chip->eoc_work,
+                			      round_jiffies_relative(msecs_to_jiffies
+                					     (EOC_CHECK_PERIOD_MS)));
+                    
+                    printk("[PM8921]Rech-eoc-worker\n");
+                }                
+  
+            }
+            
+        }else{
+
+            printk("[PM8921]End of watching status\n");
+
+            chip->chgdone_reported = false;
+
+            chip->fastchg_done = false;
+        }        
+        spin_unlock_irqrestore(&asus_chg_mode_lock, flags);  
+}
+extern void pm8921_chg_enable_charging(bool enabled)
+{
+        if(g_A60K_hwID >=A66_HW_ID_ER2){    
+            return;
+        }
+
+    if(true == enabled){
+
+        switch (local_chg_src) {
+            case ASUS_CHG_SRC_USB:
+                pm8921_charger_vbus_draw(USB_CHG_CURR);
+                break;
+            case ASUS_CHG_SRC_DC:
+                pm8921_charger_vbus_draw(AC_CHG_CURR);
+                break;
+            case ASUS_CHG_SRC_PAD_BAT:
+                pm8921_charger_vbus_draw(USB_CHG_CURR);
+                break;
+            default:
+                break;
+        }
+    }else{
+        pm8921_charger_vbus_draw(NONE_CHG_CURR);
+    }
+}
+EXPORT_SYMBOL_GPL(pm8921_chg_enable_charging);
+extern void pm8921_chg_set_chg_mode(enum asus_chg_src chg_src)
+{
+
+	unsigned long flags;
+
+    if(g_A60K_hwID >=A66_HW_ID_ER2){    
+        return;
+    }
+
+
+	spin_lock_irqsave(&asus_chg_mode_lock, flags);	
+	local_chg_src = chg_src;
+
+	printk(DBGMSK_BAT_INFO "[BAT][8921] chg_src:%d \r\n", chg_src);
+
+	if (NULL == the_chip) {
+		printk(DBGMSK_BAT_INFO "[BAT]%s(), NULL == the_chip \r\n", __FUNCTION__);
+		spin_unlock_irqrestore(&asus_chg_mode_lock, flags);
+		return;
+	}
+
+    asus_onCableInOut(chg_src);
+
+	switch (chg_src) {
+	case ASUS_CHG_SRC_USB:
+		pm8921_charger_vbus_draw(USB_CHG_CURR);
+		the_chip->usb_present = 1;
+		the_chip->dc_present = 0;
+		break;
+	case ASUS_CHG_SRC_DC:
+		/* draw 500 mA first, then draw 1500mA when making sure p01 disconnected */
+		pm8921_charger_vbus_draw(USB_CHG_CURR);
+		the_chip->dc_present = 1;
+		the_chip->usb_present = 0;
+		if (boot_check_for_set_dc_curr) 
+			schedule_delayed_work(&asus_chg_set_dc_curr_worker, 1.5*HZ);
+		break;
+	case ASUS_CHG_SRC_NONE:
+///+++ASUS_BSP+++ Eason_Chang  ASUS SW gauge
+		asus_set_not_charge_done();
+///+++ASUS_BSP--- Eason_Chang  ASUS SW gauge		
+		pm8921_charger_vbus_draw(NONE_CHG_CURR);
+		the_chip->dc_present = 0;
+		the_chip->usb_present = 0;		
+		break;
+	case ASUS_CHG_SRC_PAD_BAT:
+        // ASUS_BSP +++ Sina: Only P02 support VBUS draw 1500 mA. Otherwise, to avoid crash, we allow to draw 500 mA.
+              if(AX_MicroP_isFWSupportP02()){
+                        //pm8921_charger_vbus_draw(AC_CHG_CURR); //sina
+                        //Victor@20120112: avoid some hang or some error of audio, asked by Tom
+                        pm8921_charger_vbus_draw(USB_CHG_CURR); 
+        	}else{
+                        pm8921_charger_vbus_draw(USB_CHG_CURR); //sina
+             }
+        // ASUS_BSP ---                        
+		the_chip->dc_present = 1;
+		the_chip->usb_present = 0;		
+		break;
+	default:
+		printk(DBGMSK_BAT_ERR "[BAT]%s(), unknown charger mode. \r\n", __FUNCTION__);
+	}
+
+	spin_unlock_irqrestore(&asus_chg_mode_lock, flags);
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+	if (delayed_work_pending(&pm_ps_changed_work)) {
+		printk(DBGMSK_BAT_INFO "[BAT] re-queue pm_ps_changed_work \r\n");
+		cancel_delayed_work_sync(&pm_ps_changed_work);
+		schedule_delayed_work(&pm_ps_changed_work, 1*HZ);
+	} else {
+		schedule_delayed_work(&pm_ps_changed_work, 1*HZ);
+	}
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+	//power_supply_changed(&the_chip->usb_psy);
+	//power_supply_changed(&the_chip->dc_psy);	
+		
+	return;
+}
+EXPORT_SYMBOL_GPL(pm8921_chg_set_chg_mode);
+#endif /* CONFIG_CHARGER_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
+//ASUS BSP +++ Eason Chang add BAT global variable
+static void  UpdateGlobalValue_work(struct work_struct *work)
+{
+    struct delayed_work *dwork = to_delayed_work(work);
+    struct pm8921_chg_chip *chip = container_of(dwork,
+    			struct pm8921_chg_chip, update_BATinfo_worker);
+
+    UpdateGlobalValue();
+
+    schedule_delayed_work(&chip->update_BATinfo_worker,UPDATE_BATGLOBAL_PERIOD*HZ);
+
+}
+//ASUS BSP --- Eason Chang add BAT global variable
 
 static void (*notify_vbus_state_func_ptr)(int);
 static int usb_chg_current;
@@ -2436,7 +3244,9 @@ static void pm8921_charger_vbus_draw_local(
 
 	if (id >= SRC_ID_MAX_NUM)
 		return;
-
+///ASUS BSP Eason_Chang +++ print charger current 
+    printk("[BAT]:vbus_draw:%d\n",mA);
+///ASUS BSP Eason_Chang --- print charger current 
 	pr_debug("Enter charge=%d, id=%d\n", mA, id);
 
 	/*
@@ -2493,6 +3303,20 @@ void pm8921_charger_vbus_draw(unsigned int mA)
 	pm8921_charger_vbus_draw_local(SRC_ID_OTG, mA);
 }
 EXPORT_SYMBOL_GPL(pm8921_charger_vbus_draw);
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+int pm8921_is_chg_plugged_in(void)
+{
+	if (!the_chip) {
+		pr_err("called before init\n");
+		return -EINVAL;
+	}
+	return is_chg_plugged_in(the_chip);
+}
+EXPORT_SYMBOL(pm8921_is_chg_plugged_in);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 int pm8921_is_usb_chg_plugged_in(void)
 {
@@ -2816,6 +3640,39 @@ static bool check_if_update_necessary(struct pm8921_chg_chip *chip)
 	return rc;
 }
 
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+static void handle_chg_insertion_removal(struct pm8921_chg_chip *chip)
+{
+	int chg_present;
+    printk("[BAT]chg_I/O+++\n");
+	chg_present = is_chg_plugged_in(chip);
+	printk("[BAT]chg_I/O chg_present:%d\n",chg_present);
+	printk("[BAT]chg_I/O---\n");
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+	g_chg_present = chg_present;
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+	if (chip->chg_present ^ chg_present) {
+		notify_usb_of_the_plugin_event(chg_present)	;
+		chip->chg_present = chg_present;
+	}
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+	//if (usb_present) {
+     if(g_A60K_hwID <A66_HW_ID_ER2){    
+
+	if (chg_present) {
+		schedule_delayed_work(&chip->unplug_check_work,
+			round_jiffies_relative(msecs_to_jiffies
+				(UNPLUG_CHECK_WAIT_PERIOD_MS)));
+	}
+        }
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
+
+	bms_notify_check(chip);
+}
+#else
 static void handle_usb_insertion_removal(struct pm8921_chg_chip *chip)
 {
 	int usb_present;
@@ -2846,6 +3703,8 @@ static void handle_usb_insertion_removal(struct pm8921_chg_chip *chip)
 	}
 	bms_notify_check(chip);
 }
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 static void handle_stop_ext_chg(struct pm8921_chg_chip *chip)
 {
@@ -2922,7 +3781,9 @@ static void handle_start_ext_chg(struct pm8921_chg_chip *chip)
 	 * use eoc worker to detect end of charging
 	 */
 	schedule_delayed_work(&chip->eoc_work, delay);
-	wake_lock(&chip->eoc_wake_lock);
+	//ASUS_BSP --- Josh_Liao "remove eoc wakelock to enable suspend when ac charging"
+	//wake_lock(&chip->eoc_wake_lock);
+	//ASUS_BSP --- Josh_Liao "remove eoc wakelock to enable suspend when ac charging"
 	if (chip->btc_override)
 		schedule_delayed_work(&chip->btc_override_work,
 				round_jiffies_relative(msecs_to_jiffies
@@ -2930,6 +3791,21 @@ static void handle_start_ext_chg(struct pm8921_chg_chip *chip)
 	/* Update battery charging LEDs and user space battery info */
 	power_supply_changed(&chip->batt_psy);
 }
+
+//ASUS BSP Eason_Chang 1030 porting+++
+static void handle_dc_removal_insertion(struct pm8921_chg_chip *chip)
+{
+	int dc_present;
+
+	dc_present = is_dc_chg_plugged_in(chip);
+	if (chip->dc_present ^ dc_present) {
+		chip->dc_present = dc_present;
+		power_supply_changed(&chip->dc_psy);
+		power_supply_changed(&chip->batt_psy);
+	}
+	bms_notify_check(chip);
+}
+//ASUS BSP Eason_Chang 1030 porting---
 
 static void turn_off_ovp_fet(struct pm8921_chg_chip *chip, u16 ovptestreg)
 {
@@ -2999,6 +3875,30 @@ static int is_active_chg_plugged_in(struct pm8921_chg_chip *chip,
 
 #define WRITE_BANK_4		0xC0
 #define OVP_DEBOUNCE_TIME 0x06
+
+//ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+static void unplug_wrkarnd_restore_worker(struct work_struct *work)
+{
+	u8 temp;
+	int rc;
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct pm8921_chg_chip *chip = container_of(dwork,
+				struct pm8921_chg_chip,
+				unplug_wrkarnd_restore_work);
+
+	pr_debug("restoring vin_min to %d mV\n", chip->vin_min);
+	rc = pm_chg_vinmin_set(the_chip, chip->vin_min);
+
+	temp = WRITE_BANK_4 | 0xA;
+	rc = pm8xxx_writeb(chip->dev->parent, CHG_BUCK_CTRL_TEST3, temp);
+	if (rc) {
+		pr_err("Error %d writing %d to addr %d\n", rc,
+					temp, CHG_BUCK_CTRL_TEST3);
+	}
+	wake_unlock(&chip->unplug_wrkarnd_restore_wake_lock);
+}
+//ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
+
 static void unplug_ovp_fet_open(struct pm8921_chg_chip *chip)
 {
 	int chg_gone = 0, active_chg_plugged_in = 0;
@@ -3131,7 +4031,14 @@ static void vin_collapse_check_worker(struct work_struct *work)
 				      msecs_to_jiffies
 						(UNPLUG_CHECK_WAIT_PERIOD_MS));
 	} else {
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+		handle_chg_insertion_removal(chip);
+#else
 		handle_usb_insertion_removal(chip);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
 	}
 }
 
@@ -3144,10 +4051,25 @@ static irqreturn_t usbin_valid_irq_handler(int irq, void *data)
 		schedule_delayed_work(&the_chip->vin_collapse_check_work,
 			      msecs_to_jiffies(VIN_MIN_COLLAPSE_CHECK_MS));
 	else
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	handle_chg_insertion_removal(data);
+#else
 	    handle_usb_insertion_removal(data);
-
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	return IRQ_HANDLED;
 }
+
+//ASUS Eason_Chang +++ 
+/*
+static irqreturn_t usbin_ov_irq_handler(int irq, void *data)
+{
+	pr_err("USB OverVoltage\n");
+	return IRQ_HANDLED;
+}
+*/
+//ASUS Eason_Chang ---
 
 static irqreturn_t batt_inserted_irq_handler(int irq, void *data)
 {
@@ -3157,8 +4079,12 @@ static irqreturn_t batt_inserted_irq_handler(int irq, void *data)
 	status = pm_chg_get_rt_status(chip, BATT_INSERTED_IRQ);
 	schedule_work(&chip->battery_id_valid_work);
 	handle_start_ext_chg(chip);
+//ASUS BSP+++ notify BatteryService    
+	//asus_onChargingStart();
+    printk("[BAT][8921]%s():\n",__FUNCTION__);
+//ASUS BSP--- notify BatteryService 
 	pr_debug("battery present=%d", status);
-	power_supply_changed(&chip->batt_psy);
+	//power_supply_changed(&chip->batt_psy);//ASUS BSP+++ notify BatteryService 
 	return IRQ_HANDLED;
 }
 
@@ -3191,10 +4117,16 @@ static irqreturn_t vbatdet_low_irq_handler(int irq, void *data)
 	}
 	pr_debug("fsm_state=%d\n", pm_chg_get_fsm_state(data));
 
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+if (asus_bat_has_done_first_periodic_update()) {
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
-	power_supply_changed(&chip->dc_psy);
-
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+}
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	return IRQ_HANDLED;
 }
 
@@ -3229,13 +4161,23 @@ static irqreturn_t chgdone_irq_handler(int irq, void *data)
 	pr_debug("state_changed_to=%d\n", pm_chg_get_fsm_state(data));
 
 	handle_stop_ext_chg(chip);
-
-	power_supply_changed(&chip->batt_psy);
+//ASUS BSP+++ notify BatteryService    
+        chip->fastchg_done = true;
+	//asus_onChargingStop(exCHGDOWN);
+      //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+	//power_supply_changed(&chip->batt_psy); 
+//ASUS BSP--- notify BatteryService   	
 	power_supply_changed(&chip->usb_psy);
-	power_supply_changed(&chip->dc_psy);
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
 
 	bms_notify_check(chip);
 
+///+++ASUS_BSP+++ Eason_Chang  ASUS SW gauge
+        if(g_A60K_hwID <A66_HW_ID_ER2){    
+
+		asus_set_charge_done();
+        }
+///+++ASUS_BSP--- Eason_Chang  ASUS SW gauge
 	return IRQ_HANDLED;
 }
 
@@ -3273,9 +4215,24 @@ static irqreturn_t chgstate_irq_handler(int irq, void *data)
 	struct pm8921_chg_chip *chip = data;
 
 	pr_debug("state_changed_to=%d\n", pm_chg_get_fsm_state(data));
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+    if(g_A60K_hwID <A66_HW_ID_ER2){    
+
+	if (delayed_work_pending(&pm_ps_changed_work)) {
+		printk(DBGMSK_BAT_INFO "[BAT] re-queue pm_ps_changed_work \r\n");
+		cancel_delayed_work_sync(&pm_ps_changed_work);
+		schedule_delayed_work(&pm_ps_changed_work, 2*HZ);
+	} else {
+		schedule_delayed_work(&pm_ps_changed_work, 2*HZ);
+	}
+        }
+#else
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
-	power_supply_changed(&chip->dc_psy);
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 	bms_notify_check(chip);
 
@@ -3544,7 +4501,8 @@ static irqreturn_t loop_change_irq_handler(int irq, void *data)
 	pr_debug("fsm_state=%d reg_loop=0x%x\n",
 		pm_chg_get_fsm_state(data),
 		pm_chg_get_regulation_loop(data));
-	schedule_work(&chip->unplug_check_work.work);
+	//unplug_check_worker(&(chip->unplug_check_work.work));
+	schedule_delayed_work(&chip->unplug_check_work,0); //carol+
 	return IRQ_HANDLED;
 }
 
@@ -3582,7 +4540,9 @@ static irqreturn_t fastchg_irq_handler(int irq, void *data)
 
 	high_transition = pm_chg_get_rt_status(chip, FASTCHG_IRQ);
 	if (high_transition && !delayed_work_pending(&chip->eoc_work)) {
-		wake_lock(&chip->eoc_wake_lock);
+//ASUS_BSP +++ Josh_Liao "remove eoc wakelock to enable suspend when ac charging"
+//	wake_lock(&chip->eoc_wake_lock);
+//ASUS_BSP --- Josh_Liao "remove eoc wakelock to enable suspend when ac charging"
 		schedule_delayed_work(&chip->eoc_work,
 				      round_jiffies_relative(msecs_to_jiffies
 						     (EOC_CHECK_PERIOD_MS)));
@@ -3616,7 +4576,11 @@ static irqreturn_t batt_removed_irq_handler(int irq, void *data)
 	pr_debug("battery present=%d state=%d", !status,
 					 pm_chg_get_fsm_state(data));
 	handle_stop_ext_chg(chip);
-	power_supply_changed(&chip->batt_psy);
+//ASUS BSP+++ notify BatteryService    
+	//asus_onChargingStop(exBATT_REMOVED_ERROR);
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+	//power_supply_changed(&chip->batt_psy);
+//ASUS BSP--- notify BatteryService 	
 	return IRQ_HANDLED;
 }
 
@@ -3625,17 +4589,23 @@ static irqreturn_t batttemp_hot_irq_handler(int irq, void *data)
 	struct pm8921_chg_chip *chip = data;
 
 	handle_stop_ext_chg(chip);
-	power_supply_changed(&chip->batt_psy);
+//ASUS BSP+++ notify BatteryService        
+	//asus_onChargingStop(exBATTEMP_HOT_ERROR);//Eason for ASUS BatteryService
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+	//power_supply_changed(&chip->batt_psy);//Eason for ASUS BatteryService
+//ASUS BSP--- notify BatteryService    	
 	return IRQ_HANDLED;
 }
 
 static irqreturn_t chghot_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
+    //asus_onChargingStop(exOT_CHARGER_ERROR);
 
 	pr_debug("Chg hot fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	power_supply_changed(&chip->batt_psy);
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
 	handle_stop_ext_chg(chip);
 	return IRQ_HANDLED;
 }
@@ -3646,9 +4616,13 @@ static irqreturn_t batttemp_cold_irq_handler(int irq, void *data)
 
 	pr_debug("Batt cold fsm_state=%d\n", pm_chg_get_fsm_state(data));
 	handle_stop_ext_chg(chip);
-
-	power_supply_changed(&chip->batt_psy);
+//ASUS BSP+++ notify BatteryService        
+    //asus_onChargingStop(exBATTEMP_COLD_ERROR);
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+	//power_supply_changed(&chip->batt_psy);
+//ASUS BSP--- notify BatteryService    	
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
 	return IRQ_HANDLED;
 }
 
@@ -3666,6 +4640,7 @@ static irqreturn_t chg_gone_irq_handler(int irq, void *data)
 	if (check_if_update_necessary(chip)) {
 		power_supply_changed(&chip->batt_psy);
 		power_supply_changed(&chip->usb_psy);
+		power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
 	}
 	return IRQ_HANDLED;
 }
@@ -3690,13 +4665,26 @@ static irqreturn_t bat_temp_ok_irq_handler(int irq, void *data)
 	pr_debug("batt_temp_ok = %d fsm_state%d\n",
 			 bat_temp_ok, pm_chg_get_fsm_state(data));
 
-	if (bat_temp_ok)
+	if (bat_temp_ok){
 		handle_start_ext_chg(chip);
-	else
-		handle_stop_ext_chg(chip);
+        //ASUS BSP+++ notify BatteryService 
+        if(g_A60K_hwID <A66_HW_ID_ER2){    
 
-	power_supply_changed(&chip->batt_psy);
+        asus_onChargingStart();
+        }
+        printk("[BAT][8921]%s():true\n",__FUNCTION__);
+        //ASUS BSP--- notify BatteryService 
+	}else{
+		handle_stop_ext_chg(chip);
+        //ASUS BSP+++ notify BatteryService    
+		//asus_onChargingStop(exTEMP_OK_ERROR);
+        //printk("[ASUS][BAT]%s():false\n",__FUNCTION__);
+		//ASUS BSP--- notify BatteryService    
+	}
+
+	//power_supply_changed(&chip->batt_psy);//ASUS BSP notify BatteryService 
 	power_supply_changed(&chip->usb_psy);
+	power_supply_changed(&chip->dc_psy);//ASUS BSP Eason_Chang 1030 porting
 	bms_notify_check(chip);
 	return IRQ_HANDLED;
 }
@@ -3739,6 +4727,7 @@ static irqreturn_t dcin_valid_irq_handler(int irq, void *data)
 	struct pm8921_chg_chip *chip = data;
 	int dc_present;
 
+   	handle_dc_removal_insertion(chip);//ASUS BSP Eason_Chang 1030 porting
 	check_unplug_wakelock(the_chip);
 
 	pm_chg_failed_clear(chip, 1);
@@ -3759,7 +4748,16 @@ static irqreturn_t dcin_valid_irq_handler(int irq, void *data)
 
 	if (chip->ext_psy) {
 		if (dc_present)
-			handle_start_ext_chg(chip);
+   {
+		handle_start_ext_chg(chip);
+        //ASUS BSP+++ notify BatteryService    
+        if(g_A60K_hwID <A66_HW_ID_ER2){    
+
+		 asus_onChargingStart();
+        }
+    	 printk("[BAT][8921]%s():\n",__FUNCTION__); 
+    	 //ASUS BSP--- notify BatteryService    
+   }   
 		else
 			handle_stop_ext_chg(chip);
 	} else {
@@ -3778,7 +4776,12 @@ static irqreturn_t dcin_ov_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
+   	handle_dc_removal_insertion(chip);//ASUS BSP Eason_Chang 1030 porting
 	handle_stop_ext_chg(chip);
+	//ASUS BSP+++ notify BatteryService    
+	//asus_onChargingStop(exDCIN_OV);
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+    //ASUS BSP--- notify BatteryService   
 	return IRQ_HANDLED;
 }
 
@@ -3786,7 +4789,11 @@ static irqreturn_t dcin_uv_irq_handler(int irq, void *data)
 {
 	struct pm8921_chg_chip *chip = data;
 
-	handle_stop_ext_chg(chip);
+	handle_stop_ext_chg(chip);//Eason for ASUS BatteryService
+	//ASUS BSP+++ notify BatteryService    
+	//asus_onChargingStop(exDCIN_UV);
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+    //ASUS BSP--- notify BatteryService  
 
 	return IRQ_HANDLED;
 }
@@ -4386,6 +5393,48 @@ eoc_worker_stop:
 	wake_unlock(&chip->eoc_wake_lock);
 }
 
+//ASUS BSP Eason_Chang 1030 porting+++
+int register_external_dc_charger(struct ext_chg_pm8921 *ext)
+{
+	if (the_chip == NULL) {
+		pr_err("called too early\n");
+		return -EINVAL;
+	}
+	/* TODO check function pointers */
+	the_chip->ext = ext;
+	the_chip->ext_charging = false;
+
+	if (is_dc_chg_plugged_in(the_chip))
+		pm8921_disable_source_current(true); /* Force BATFET=ON */
+
+	handle_start_ext_chg(the_chip);
+    //ASUS BSP+++ notify BatteryService 
+    if(g_A60K_hwID <A66_HW_ID_ER2){    
+	asus_onChargingStart();
+    }
+    printk("[BAT][8921]%s():\n",__FUNCTION__);
+    //ASUS BSP--- notify BatteryService  
+
+	return 0;
+}
+EXPORT_SYMBOL(register_external_dc_charger);
+
+void unregister_external_dc_charger(struct ext_chg_pm8921 *ext)
+{
+	if (the_chip == NULL) {
+		pr_err("called too early\n");
+		return;
+	}
+	handle_stop_ext_chg(the_chip);
+	//ASUS BSP+++ notify BatteryService    
+	//asus_onChargingStop(exUNREG_extDC);
+    //printk("[ASUS][BAT]%s():\n",__FUNCTION__);
+    //ASUS BSP--- notify BatteryService   
+	the_chip->ext = NULL;
+}
+EXPORT_SYMBOL(unregister_external_dc_charger);
+//ASUS BSP Eason_Chang 1030 porting-----
+
 /**
  * set_disable_status_param -
  *
@@ -4468,7 +5517,12 @@ static int set_therm_mitigation_level(const char *val, struct kernel_param *kp)
 		pr_err("out of bound level selected\n");
 		return -EINVAL;
 	}
-
+//Eason : when thermal too hot, limit charging current +++
+    if(g_A60K_hwID >=A66_HW_ID_ER2)
+    {
+        notifyThermalLimit(thermal_mitigation);
+    }
+//Eason : when thermal too hot, limit charging current ---   
 	set_appropriate_battery_current(chip);
 	return ret;
 }
@@ -4515,11 +5569,26 @@ static void __devinit determine_initial_state(struct pm8921_chg_chip *chip)
 	int is_fast_chg;
 	int rc = 0;
 	u8 trim_sel_reg = 0, regsbi;
-
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	chip->chg_present = !!is_chg_plugged_in(chip);
+	notify_usb_of_the_plugin_event(chip->chg_present);
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+ if(g_A60K_hwID <A66_HW_ID_ER2){
+	if (chip->chg_present) {
+		schedule_delayed_work(&chip->unplug_check_work,
+			round_jiffies_relative(msecs_to_jiffies
+				(UNPLUG_CHECK_WAIT_PERIOD_MS)));
+	}
+}
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
+#else
 	chip->dc_present = !!is_dc_chg_plugged_in(chip);
 	chip->usb_present = !!is_usb_chg_plugged_in(chip);
 
 	notify_usb_of_the_plugin_event(chip->usb_present);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	if (chip->usb_present || chip->dc_present) {
 		schedule_delayed_work(&chip->unplug_check_work,
 			msecs_to_jiffies(UNPLUG_CHECK_WAIT_PERIOD_MS));
@@ -4575,6 +5644,21 @@ static void __devinit determine_initial_state(struct pm8921_chg_chip *chip)
 			chip->dc_present,
 			get_prop_batt_present(chip),
 			fsm_state);
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+	g_chg_present = chip->chg_present;
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+    if(g_A60K_hwID <A66_HW_ID_ER2){
+
+	schedule_delayed_work(&asus_chg_set_dc_curr_worker, 25*HZ);
+	asus_chg_set_chg_mode(local_chg_src);
+    }
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 	/* Determine which USB trim column to use */
 	if (pm8xxx_get_version(chip->dev->parent) == PM8XXX_VERSION_8917) {
@@ -5551,6 +6635,7 @@ static int pm8921_charger_resume(struct device *dev)
 {
 	struct pm8921_chg_chip *chip = dev_get_drvdata(dev);
 
+	pm8921_fix_charger_lockup(chip); //ASUS_BSP eason QCPatch:fix statemachine lookup
 	if (pm8921_chg_is_enabled(chip, LOOP_CHANGE_IRQ)) {
 		disable_irq_wake(chip->pmic_chg_irq[LOOP_CHANGE_IRQ]);
 		pm8921_chg_disable_irq(chip, LOOP_CHANGE_IRQ);
@@ -5561,7 +6646,12 @@ static int pm8921_charger_resume(struct device *dev)
 		schedule_delayed_work(&chip->btc_override_work, 0);
 
 	schedule_delayed_work(&chip->update_heartbeat_work, 0);
-
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+	if (pm8921_chg_is_enabled(chip, LOOP_CHANGE_IRQ)) {
+		disable_irq_wake(chip->pmic_chg_irq[LOOP_CHANGE_IRQ]);
+		pm8921_chg_disable_irq(chip, LOOP_CHANGE_IRQ);
+	}
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
 	return 0;
 }
 
@@ -5590,15 +6680,77 @@ static int pm8921_charger_suspend(struct device *dev)
 		pm8921_chg_enable_irq(chip, LOOP_CHANGE_IRQ);
 		enable_irq_wake(chip->pmic_chg_irq[LOOP_CHANGE_IRQ]);
 	}
-
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+	if (is_usb_chg_plugged_in(chip)) {
+		pm8921_chg_enable_irq(chip, LOOP_CHANGE_IRQ);
+		enable_irq_wake(chip->pmic_chg_irq[LOOP_CHANGE_IRQ]);
+	}
+     //ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
 	return 0;
 }
+#ifdef CONFIG_HAS_EARLYSUSPEND
+//ASUS_BSP+++ 
+static void pm8921_early_suspend(struct early_suspend *h)
+{
+    printk("%s+++\r\n",__FUNCTION__);
+    if(g_A60K_hwID >=A66_HW_ID_ER2){
+
+            return;
+    }
+    
+    if(is_chg_plugged_in(the_chip)){
+        if (delayed_work_pending(&the_chip->chg_status_check_work)){
+            
+            cancel_delayed_work_sync(&the_chip->chg_status_check_work);
+        }
+    }
+    printk("%s---\r\n",__FUNCTION__);
+}
+
+static void pm8921_late_resume(struct early_suspend *h)
+{
+    printk("%s+++\r\n",__FUNCTION__);
+
+    if(g_A60K_hwID >=A66_HW_ID_ER2){
+
+            return;
+    }
+
+    
+    if(is_chg_plugged_in(the_chip)){
+        if (!delayed_work_pending(&the_chip->chg_status_check_work)){
+
+
+            printk("Re-sche checking state worker...\r\n");
+            schedule_delayed_work(&the_chip->chg_status_check_work,
+                          DELAY_FOR_CHK_STATUS_IN_RESUME*HZ);
+
+        }
+    }
+    printk("%s---\r\n",__FUNCTION__);
+
+}
+
+struct early_suspend pm8921_early_suspend_handler = {
+    .level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
+    .suspend = pm8921_early_suspend,
+    .resume = pm8921_late_resume,
+};
+//ASUS BSP---  
+#endif
 static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct pm8921_chg_chip *chip;
 	const struct pm8921_charger_platform_data *pdata
 				= pdev->dev.platform_data;
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	struct asus_bat_phone_bat_struct *phone_bat;
+	printk(DBGMSK_BAT_DEBUG "[BAT] %s() +++\n", __FUNCTION__);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 	if (!pdata) {
 		pr_err("missing platform data\n");
@@ -5708,6 +6860,10 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	chip->stop_chg_upon_expiry = pdata->stop_chg_upon_expiry;
 	chip->usb_type = POWER_SUPPLY_TYPE_UNKNOWN;
 	chip->soc_scale.active = (bool)pdata->soc_scaling;
+//ASUS_BSP +++
+#ifdef CONFIG_MAXIM_8934_CHARGER
+
+    if(g_A60K_hwID < A66_HW_ID_ER2){
 
 	chip->usb_psy.name = "usb";
 	chip->usb_psy.type = POWER_SUPPLY_TYPE_USB;
@@ -5719,38 +6875,73 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	chip->usb_psy.set_property = pm_power_set_property_usb;
 	chip->usb_psy.property_is_writeable = usb_property_is_writeable;
 
-	chip->dc_psy.name = "pm8921-dc";
+	chip->dc_psy.name = "ac";
 	chip->dc_psy.type = POWER_SUPPLY_TYPE_MAINS;
 	chip->dc_psy.supplied_to = pm_power_supplied_to;
 	chip->dc_psy.num_supplicants = ARRAY_SIZE(pm_power_supplied_to);
 	chip->dc_psy.properties = pm_power_props_mains;
 	chip->dc_psy.num_properties = ARRAY_SIZE(pm_power_props_mains);
 	chip->dc_psy.get_property = pm_power_get_property_mains;
-
+}
+#endif
+//ASUS_BSP --- 
 	chip->batt_psy.name = "battery";
 	chip->batt_psy.type = POWER_SUPPLY_TYPE_BATTERY;
 	chip->batt_psy.properties = msm_batt_power_props;
 	chip->batt_psy.num_properties = ARRAY_SIZE(msm_batt_power_props);
 	chip->batt_psy.get_property = pm_batt_power_get_property;
 	chip->batt_psy.external_power_changed = pm_batt_external_power_changed;
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+	local_chip = chip;
+	phone_bat = kzalloc(sizeof(struct asus_bat_phone_bat_struct), GFP_KERNEL);
+	if (!phone_bat) {
+		pr_err("[BAT] cannot allocate asus_bat_phone_bat_struct\n");
+		return -ENOMEM;
+//TODO:  goto and free 
+	}
+
+	phone_bat->phone_bat_power_supply_changed = api_phone_bat_power_supply_changed;
+	phone_bat->get_prop_bat_present_byhw = api_get_prop_batt_present;
+	phone_bat->get_prop_bat_capacity_byhw = api_get_prop_batt_capacity;
+	phone_bat->get_prop_bat_status_byhw = api_get_prop_batt_status;
+    //ASUS_BSP +++ Eason_Chang "to check if chgin"
+    phone_bat->get_prop_bat_chgin_byhw = api_get_prop_batt_chgin;
+    //ASUS_BSP --- Eason_Chang "to check if chgin"
+	phone_bat->get_prop_charge_type_byhw = api_get_prop_charge_type;
+	phone_bat->get_prop_batt_health_byhw = api_get_prop_batt_health;
+	phone_bat->get_prop_batt_volt_byhw = api_get_prop_batt_volt;
+	phone_bat->get_prop_batt_curr_byhw = api_get_prop_batt_curr;
+
+	asus_bat_set_phone_bat(phone_bat);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
+//ASUS_BSP +++
+#ifdef CONFIG_MAXIM_8934_CHARGER
+    
+        if(g_A60K_hwID < A66_HW_ID_ER2){
+
 	rc = power_supply_register(chip->dev, &chip->usb_psy);
 	if (rc < 0) {
 		pr_err("power_supply_register usb failed rc = %d\n", rc);
 		goto free_chip;
 	}
-
+//ASUS BSP Eason_Chang 1030 porting
 	rc = power_supply_register(chip->dev, &chip->dc_psy);
 	if (rc < 0) {
-		pr_err("power_supply_register usb failed rc = %d\n", rc);
+		pr_err("power_supply_register dc failed rc = %d\n", rc);
 		goto unregister_usb;
 	}
-
+}
+#endif
+//ASUS_BSP ---
 	rc = power_supply_register(chip->dev, &chip->batt_psy);
 	if (rc < 0) {
 		pr_err("power_supply_register batt failed rc = %d\n", rc);
 		goto unregister_dc;
 	}
-
+//ASUS BSP Eason_Chang 1030 porting
 	chip->swdev.name = "dock";
 	rc = switch_dev_register(&chip->swdev);
 	if (rc < 0) {
@@ -5765,11 +6956,19 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	wake_lock_init(&chip->unplug_wake_lock,
 			WAKE_LOCK_SUSPEND, "pm8921_unplug");
 	wake_lock_init(&chip->dock_wake_lock, WAKE_LOCK_SUSPEND, "pm8921_dock");
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+	wake_lock_init(&chip->unplug_wrkarnd_restore_wake_lock,
+			WAKE_LOCK_SUSPEND, "pm8921_unplug_wrkarnd");
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue---
+
 	INIT_DELAYED_WORK(&chip->eoc_work, eoc_worker);
 	INIT_DELAYED_WORK(&chip->vin_collapse_check_work,
 						vin_collapse_check_worker);
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue+++
+	INIT_DELAYED_WORK(&chip->unplug_wrkarnd_restore_work,
+					unplug_wrkarnd_restore_worker);
 	INIT_DELAYED_WORK(&chip->unplug_check_work, unplug_check_worker);
-
+    //ASUS_BSP eason QCPatch:Workaround for USB unplug issue----
 	INIT_WORK(&chip->bms_notify.work, bms_notify);
 	INIT_WORK(&chip->battery_id_valid_work, battery_id_valid);
 
@@ -5788,7 +6987,16 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	enable_irq_wake(chip->pmic_chg_irq[DCIN_VALID_IRQ]);
 	enable_irq_wake(chip->pmic_chg_irq[VBATDET_LOW_IRQ]);
 	enable_irq_wake(chip->pmic_chg_irq[FASTCHG_IRQ]);
-
+/*
+//ASUS_BSP eason QCPatch:fix statemachine lookup+++
+	chip->notifier.notifier_call = idle_enter_exit_notifier;
+	rc = msm_cpuidle_register_notifier(0, &chip->notifier);
+	if (rc) {
+		pr_err("cpuidle registration failed rc = %d\n", rc);
+		goto free_irq;
+	}
+//ASUS_BSP eason QCPatch:fix statemachine lookup---
+*/
 	create_debugfs_entries(chip);
 	rc = create_sysfs_entries(chip);
 	if (rc < 0)
@@ -5797,10 +7005,57 @@ static int __devinit pm8921_charger_probe(struct platform_device *pdev)
 	/* determine what state the charger is in */
 	determine_initial_state(chip);
 
-	if (chip->update_time)
+	if (chip->update_time) {
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+		pr_err("[BAT] error!! should not use qualcomm battery update work \r\n");
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+		INIT_DELAYED_WORK(&chip->update_heartbeat_work,
+							update_heartbeat);
 		schedule_delayed_work(&chip->update_heartbeat_work,
 				      round_jiffies_relative(msecs_to_jiffies
 							(chip->update_time)));
+	}
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+if(g_A60K_hwID <A66_HW_ID_ER2){
+
+if (is_chg_plugged_in(chip)==1 && asus_chg_get_chg_mode()!=2){
+	printk("[BAT]:AC/USB set srcUSB\n");
+	//pm8921_charger_vbus_draw(USB_CHG_CURR);
+	asus_chg_set_chg_mode(ASUS_CHG_SRC_USB);
+}
+}
+	printk(DBGMSK_BAT_DEBUG "[BAT] %s() ---\n", __FUNCTION__);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"	
+//ASUS BSP+++ Eason notify BatteryService   
+    gSaved8921FsmState = pm_chg_get_fsm_state(chip);
+
+    chip->chg_status_check_wq = create_singlethread_workqueue("PM8921ChgStatusCheckQueue");
+
+
+    INIT_DELAYED_WORK(&chip->chg_status_check_work,
+                        chg_status_check_work);
+
+    chip->chg_state_polling_interval = CHK_STATUS_CHECK_PERIOD_S;
+
+    chip->chgdone_reported  = false;
+
+    chip->fastchg_done = false;
+#ifdef CONFIG_HAS_EARLYSUSPEND
+    register_early_suspend(&pm8921_early_suspend_handler);
+#endif
+//ASUS BSP--- Eason notify BatteryService 
+//ASUS BSP +++ Eason Chang add BAT global variable
+ INIT_DELAYED_WORK(&chip->update_BATinfo_worker,\
+                            UpdateGlobalValue_work);
+ schedule_delayed_work(&chip->update_BATinfo_worker,\
+                         round_jiffies_relative(msecs_to_jiffies(UPDATE_BATGLOBAL_FIRSTTIME)));
+//ASUS BSP --- Eason Chang add BAT global variable
+
 	return 0;
 
 unregister_swdev:
@@ -5821,6 +7076,7 @@ static int __devexit pm8921_charger_remove(struct platform_device *pdev)
 {
 	struct pm8921_chg_chip *chip = platform_get_drvdata(pdev);
 
+	//msm_cpuidle_unregister_notifier(0, &chip->notifier);//ASUS_BSP eason QCPatch:fix statemachine lookup
 	remove_sysfs_entries(chip);
 	free_irqs(chip);
 	switch_dev_unregister(&chip->swdev);

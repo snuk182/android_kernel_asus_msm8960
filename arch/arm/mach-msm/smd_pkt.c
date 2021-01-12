@@ -817,7 +817,11 @@ static uint32_t is_modem_smsm_inited(void)
 	modem_state = smsm_get_state(SMSM_MODEM_STATE);
 	return (modem_state & ready_state) == ready_state;
 }
-
+//ASUS_BSP+++ JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
+#ifdef ASUS_FACTORY_BUILD
+extern void msm_otg_notify_modem_up(void);
+#endif
+//ASUS_BSP--- JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
 int smd_pkt_open(struct inode *inode, struct file *file)
 {
 	int r = 0;
@@ -955,6 +959,13 @@ out:
 	mutex_unlock(&smd_pkt_devp->ch_lock);
 
 
+//ASUS_BSP+++ JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
+	#ifdef ASUS_FACTORY_BUILD
+	if(smd_pkt_devp->i == 1){//check second channel, to make sure first channel success or timeout
+		msm_otg_notify_modem_up();
+	}
+	#endif
+//ASUS_BSP--- JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
 	return r;
 }
 

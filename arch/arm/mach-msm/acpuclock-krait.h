@@ -50,6 +50,10 @@ enum pvs {
 	PVS_NOMINAL = 1,
 	PVS_FAST = 3,
 	PVS_FASTER = 4,
+//+++ ASUS_BSP Enter_Zhang: ACPU run 384mhz to reduce power consumption in charger mode
+#ifdef CONFIG_CHARGER_MODE
+	PVS_CHARGER = 5,
+#endif
 	NUM_PVS = 7
 };
 

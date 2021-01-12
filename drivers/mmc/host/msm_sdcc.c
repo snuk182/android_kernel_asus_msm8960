@@ -78,6 +78,12 @@
 #define MSM_MMC_BUS_VOTING_DELAY	200 /* msecs */
 #define INVALID_TUNING_PHASE		-1
 
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+static int g_sdcc_status_irq = 0;
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
+
 #if defined(CONFIG_DEBUG_FS)
 static void msmsdcc_dbg_createhost(struct msmsdcc_host *);
 static struct dentry *debugfs_dir;
@@ -4322,6 +4328,12 @@ static const struct mmc_host_ops msmsdcc_ops = {
 	.notify_load = msmsdcc_notify_load,
 };
 
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+static bool g_mmc1_pm_suspended = false;
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
+
 static unsigned int
 msmsdcc_slot_status(struct msmsdcc_host *host)
 {
@@ -4390,6 +4402,16 @@ msmsdcc_platform_status_irq(int irq, void *dev_id)
 	struct msmsdcc_host *host = dev_id;
 
 	pr_debug("%s: %d\n", __func__, irq);
+	
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+	pr_info("[SD] msmsdcc_platform_status_irq triggered\n");
+	if (g_mmc1_pm_suspended) {
+		wake_lock_timeout(&host->mmc_suspend_wlock, 2*HZ);
+		return IRQ_HANDLED;
+	}
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 	msmsdcc_check_status((unsigned long) host);
 	return IRQ_HANDLED;
 }
@@ -5937,6 +5959,8 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->max_req_size = MMC_MAX_REQ_SIZE;
 	mmc->max_seg_size = mmc->max_req_size;
 
+	mmc->pdev_id = host->pdev_id; /* ASUS_BSP+++: Fix eMMC halt in Reliable Write */
+
 	writel_relaxed(0, host->base + MMCIMASK0);
 	writel_relaxed(MCI_CLEAR_STATIC_MASK, host->base + MMCICLEAR);
 	msmsdcc_sync_reg_wr(host);
@@ -5994,6 +6018,16 @@ msmsdcc_probe(struct platform_device *pdev)
 
 	wake_lock_init(&host->sdio_suspend_wlock, WAKE_LOCK_SUSPEND,
 			mmc_hostname(mmc));
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+	pr_info("[SD] define CONFIG_SD_DETECT_WAKEUP");
+	wake_lock_init(&host->mmc_suspend_wlock, WAKE_LOCK_SUSPEND,
+			mmc_hostname(mmc));
+#else
+	pr_info("[SD] not define CONFIG_SD_DETECT_WAKEUP");
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
+
 	/*
 	 * Setup card detect change
 	 */
@@ -6012,6 +6046,12 @@ msmsdcc_probe(struct platform_device *pdev)
 		host->eject = !host->oldstat;
 	}
 
+//ASUS_BSP +++ Josh_Liao "detect card removed to avoid retry"
+#ifdef CONFIG_ASUS_AVOID_SD_RETRY
+	local_msmsdcc_host = host;
+#endif /* CONFIG_ASUS_AVOID_SD_RETRY */
+//ASUS_BSP --- Josh_Liao "detect card removed to avoid retry"
+
 	if (plat->status_irq) {
 		ret = request_threaded_irq(plat->status_irq, NULL,
 				  msmsdcc_platform_status_irq,
@@ -6023,6 +6063,11 @@ msmsdcc_probe(struct platform_device *pdev)
 			       plat->status_irq, ret);
 			goto sdiowakeup_irq_free;
 		}
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+		g_sdcc_status_irq = plat->status_irq;
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 	} else if (plat->register_status_notify) {
 		plat->register_status_notify(msmsdcc_status_notify_cb, host);
 	} else if (!plat->status)
@@ -6538,9 +6583,12 @@ static int msmsdcc_pm_suspend(struct device *dev)
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
-
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifndef CONFIG_SD_DETECT_WAKEUP
 	if (host->plat->status_irq)
 		disable_irq(host->plat->status_irq);
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 
 	/*
 	 * If system comes out of suspend, msmsdcc_pm_resume() sets the
@@ -6552,8 +6600,19 @@ static int msmsdcc_pm_suspend(struct device *dev)
 	 * pending_resume flag is cleared before calling the
 	 * msmsdcc_runtime_suspend().
 	 */
-	if (!pm_runtime_suspended(dev) && !host->pending_resume)
+	if (!pm_runtime_suspended(dev) && !host->pending_resume){
 		rc = msmsdcc_runtime_suspend(dev);
+		
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+	if(!strcmp(mmc_hostname(mmc), "mmc1")) {
+		pr_info("[SD] %s(), set g_mmc1_pm_suspended as true \n",mmc_hostname(mmc));
+		g_mmc1_pm_suspended = true;
+	}
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
+
+	}
 	/* This flag must not be set if system is entering into suspend */
 	host->pending_resume = false;
 	return rc;
@@ -6605,9 +6664,21 @@ static int msmsdcc_pm_resume(struct device *dev)
 
 	if (host->plat->status_irq) {
 		msmsdcc_check_status((unsigned long)host);
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifndef CONFIG_SD_DETECT_WAKEUP
 		enable_irq(host->plat->status_irq);
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 	}
 
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+	if(!strcmp(mmc_hostname(mmc), "mmc1")) {
+		pr_info("[SD] %s(), set g_mmc1_pm_suspended as false \n",mmc_hostname(mmc) );
+		g_mmc1_pm_suspended = false;
+	}
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 	return rc;
 }
 

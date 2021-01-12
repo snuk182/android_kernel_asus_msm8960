@@ -853,6 +853,16 @@ err:
 	mutex_unlock(&acdb_data.acdb_mutex);
 	return result;
 }
+
+int gRingtone_state;     //Bruno++
+int gSKYPE_state = 0;    //Bruno++
+int gGarmin_state =0;    //ASUS Tim++
+int galarm_state =0;         //ASUS Tim++
+int gVR_state = 0;      //Bruno++
+int gHAC_mode;     //ASUS Tim++
+int gdevice_change =0;  //ASUS Tim++
+int g_flag_csvoice_fe_connected = 0;
+extern void SetLimitCurrentInPhoneCall(bool phoneOn);   //Bruno++
 static long acdb_ioctl(struct file *f,
 		unsigned int cmd, unsigned long arg)
 {
@@ -930,7 +940,124 @@ static long acdb_ioctl(struct file *f,
 	case AUDIO_SET_HW_DELAY_TX:
 		result = store_hw_delay(TX_CAL, (void *)arg);
 		goto done;
-	}
+
+    //Bruno++
+    case AUDIO_SET_RINGTONE_STATE:      
+        if (copy_from_user(&gRingtone_state, (void *)arg,
+                sizeof(gRingtone_state))) {
+            pr_err("%s: fail to copy gRingtone_state!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_GET_RINGTONE_STATE:
+        if (copy_to_user((void *)arg, &gRingtone_state,
+                sizeof(gRingtone_state))) {
+            pr_err("%s: fail to copy gRingtone_state!!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_SET_INCALL_STATE:      
+        if (copy_from_user(&g_flag_csvoice_fe_connected, (void *)arg,
+                sizeof(g_flag_csvoice_fe_connected))) {
+            pr_err("%s: fail to copy g_flag_csvoice_fe_connected!\n", __func__);
+            result = -EFAULT;
+            } else {
+            SetLimitCurrentInPhoneCall( (bool)(g_flag_csvoice_fe_connected ? 1:0) ); 
+        }
+        goto done;
+    case AUDIO_SET_SKYPE_STATE:      
+        if (copy_from_user(&gSKYPE_state, (void *)arg,
+                sizeof(gSKYPE_state))) {
+            pr_err("%s: fail to copy gSKYPE_state!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_GET_SKYPE_STATE:
+        if (copy_to_user((void *)arg, &gSKYPE_state,
+                sizeof(gSKYPE_state))) {
+            pr_err("%s: fail to copy gSKYPE_state!!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_SET_VR_STATE:      
+        if (copy_from_user(&gVR_state, (void *)arg,
+                sizeof(gVR_state))) {
+            pr_err("%s: fail to copy gVR_state!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_GET_VR_STATE:
+        if (copy_to_user((void *)arg, &gVR_state,
+                sizeof(gVR_state))) {
+            pr_err("%s: fail to copy gVR_state!!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+        //Bruno++
+//ASUS Tim++
+    case AUDIO_SET_HAC_mode:      
+        if (copy_from_user(&gHAC_mode, (void *)arg,
+                sizeof(gHAC_mode))) {
+            pr_err("%s: fail to copy gHAC_mode!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+    case AUDIO_GET_HAC_mode:
+        if (copy_to_user((void *)arg, &gHAC_mode,
+                sizeof(gHAC_mode))) {
+            pr_err("%s: fail to copy gHAC_mode!!\n", __func__);
+            result = -EFAULT;
+        }
+        goto done;
+	//ASUS Tim++
+    case AUDIO_SET_Garmin_STATE:      
+         if (copy_from_user(&gGarmin_state, (void *)arg,
+                 sizeof(gGarmin_state))) {
+             pr_err("%s: fail to copy gSKYPE_state!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done;
+    case AUDIO_GET_Garmin_STATE:
+        if (copy_to_user((void *)arg, &gGarmin_state,
+                 sizeof(gGarmin_state))) {
+             pr_err("%s: fail to copy gSKYPE_state!!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done; 
+
+    case AUDIO_SET_Alarm_STATE:      
+         if (copy_from_user(&galarm_state, (void *)arg,
+                 sizeof(galarm_state))) {
+             pr_err("%s: fail to copy gSKYPE_state!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done;
+    case AUDIO_GET_Alarm_STATE:
+        if (copy_to_user((void *)arg, &galarm_state,
+                 sizeof(galarm_state))) {
+             pr_err("%s: fail to copy gSKYPE_state!!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done; 
+		 
+	case AUDIO_SET_change_device:      
+         if (copy_from_user(&gdevice_change, (void *)arg,
+                 sizeof(gdevice_change))) {
+             pr_err("%s: fail to copy gSKYPE_state!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done;
+    case AUDIO_GET_change_device:
+        if (copy_to_user((void *)arg, &gdevice_change,
+                 sizeof(gdevice_change))) {
+             pr_err("%s: fail to copy gSKYPE_state!!\n", __func__);
+             result = -EFAULT;
+         }
+         goto done; 
+	
+//ASUS Tim--
+	}    
+    //Bruno++
 
 	if (copy_from_user(&size, (void *) arg, sizeof(size))) {
 

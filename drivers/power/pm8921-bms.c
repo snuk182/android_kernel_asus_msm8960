@@ -3260,7 +3260,8 @@ static int set_battery_data(struct pm8921_bms_chip *chip)
 	else if (chip->batt_type == BATT_PALLADIUM)
 		goto palladium;
 	else if (chip->batt_type == BATT_OEM)
-		goto oem;
+		//goto oem;
+		panic("Unsupported OEM battery!");
 
 	battery_id = read_battery_id(chip);
 	if (battery_id < 0) {
@@ -3302,6 +3303,7 @@ desay:
 		chip->delta_rbatt_mohm = desay_5200_data.delta_rbatt_mohm;
 		chip->rbatt_capacitive_mohm
 			= desay_5200_data.rbatt_capacitive_mohm;
+#if 0
 oem:
 		chip->fcc = oem_batt_data.fcc;
 		chip->fcc_temp_lut = oem_batt_data.fcc_temp_lut;
@@ -3312,6 +3314,7 @@ oem:
 		chip->delta_rbatt_mohm = oem_batt_data.delta_rbatt_mohm;
 		chip->rbatt_capacitive_mohm
 			= oem_batt_data.rbatt_capacitive_mohm;
+#endif
 		return 0;
 }
 

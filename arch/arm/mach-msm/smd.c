@@ -2862,6 +2862,7 @@ int smsm_change_state(uint32_t smsm_entry,
 {
 	unsigned long flags;
 	uint32_t  old_state, new_state;
+    int ret;
 
 	if (smsm_entry >= SMSM_NUM_ENTRIES) {
 		pr_err("smsm_change_state: Invalid entry %d",
@@ -2873,6 +2874,15 @@ int smsm_change_state(uint32_t smsm_entry,
 		pr_err("smsm_change_state <SM NO STATE>\n");
 		return -EIO;
 	}
+
+    ret = kfifo_avail(&smsm_snapshot_fifo);
+	if (ret < SMSM_SNAPSHOT_SIZE) {
+        if( smsm_cb_wq ) {
+            flush_workqueue(smsm_cb_wq);
+            pr_err("%s: flush_workqueue(smsm_cb_wq).\n", __func__);
+	    }
+    }
+
 	spin_lock_irqsave(&smem_lock, flags);
 
 	old_state = __raw_readl(SMSM_STATE_ADDR(smsm_entry));

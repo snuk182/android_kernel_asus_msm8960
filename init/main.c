@@ -108,6 +108,27 @@ bool early_boot_irqs_disabled __read_mostly;
 enum system_states system_state __read_mostly;
 EXPORT_SYMBOL(system_state);
 
+//+++ ASUS_BSP : miniporting : Add for audio dbg mode
+int g_user_dbg_mode = 1;
+EXPORT_SYMBOL(g_user_dbg_mode);
+
+static int set_user_dbg_mode(char *str)
+{
+    if ( strcmp("y", str) == 0 )
+    {
+        g_user_dbg_mode = 1;
+    }
+    else
+    {
+        g_user_dbg_mode = 0;
+    }
+    g_user_dbg_mode = 1;
+    printk("Kernel dbg mode = %d\n", g_user_dbg_mode);
+    return 0;
+}
+__setup("dbg=", set_user_dbg_mode);
+//--- ASUS_BSP : miniporting : Add for audio dbg mode
+
 /*
  * Boot command-line arguments
  */
@@ -123,11 +144,555 @@ extern void softirq_init(void);
 char __initdata boot_command_line[COMMAND_LINE_SIZE];
 /* Untouched saved command line (eg. for /proc) */
 char *saved_command_line;
+char *bootimage_command_line;			//ASUS_BSP : Add for parse cmdline info to proc/bootinfo
 /* Command line for parameter parsing */
 static char *static_command_line;
 
 static char *execute_command;
 static char *ramdisk_execute_command;
+
+
+//+++ ASUS_BSP : miniporting
+enum A60K_HWID g_A60K_hwID=A60K_UNKNOWN;
+EXPORT_SYMBOL(g_A60K_hwID);
+static int set_hardware_id(char *str)
+{
+	strncat(bootimage_command_line, "HW ID : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	if ( strcmp("EVB", str) == 0 )
+	{
+		g_A60K_hwID = A60K_EVB;
+		printk("Kernel HW ID = A60K_EVB\n");
+	}
+	else if ( strcmp("SR1_1", str) == 0 )
+	{
+		g_A60K_hwID = A60K_SR1_1;
+		printk("Kernel HW ID = A60K_SR1_1\n");
+	}
+	else if ( strcmp("SR1_2_ES1", str) == 0 )
+	{
+		g_A60K_hwID = A60K_SR1_2_ES1;
+		printk("Kernel HW ID = A60K_SR1_2_ES1\n");
+	}
+	else if ( strcmp("SR1_2_ES2", str) == 0 )
+	{
+		g_A60K_hwID = A60K_SR1_2_ES2;
+		printk("Kernel HW ID = A60K_SR1_2_ES2\n");
+	}
+	else if ( strcmp("ER1", str) == 0 )
+	{
+		g_A60K_hwID = A60K_ER1;
+		printk("Kernel HW ID = A60K_ER1\n");
+	}	
+	else if ( strcmp("ER2", str) == 0 )
+	{
+		g_A60K_hwID = A60K_ER2;
+		printk("Kernel HW ID = A60K_ER2\n");
+	}	
+	else if ( strcmp("PR", str) == 0 )
+	{
+		g_A60K_hwID = A60K_PR;
+		printk("Kernel HW ID = A60K_PR\n");
+	}	
+	// +++ ASUS_BSP : miniporting : Add for A66 Proj
+	else if ( strcmp("A66_SR1_1", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_SR1_1;
+		printk("Kernel HW ID = A66_SR1_1\n");
+	}
+	else if ( strcmp("A66_SR2", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_SR2;
+		printk("Kernel HW ID = A66_SR2\n");
+	}	
+	else if ( strcmp("A66_ER1", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_ER1;
+		printk("Kernel HW ID = A66_ER1\n");
+	}	
+	else if ( strcmp("A66_ER2", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_ER2;
+		printk("Kernel HW ID = A66_ER2\n");
+	}	
+	else if ( strcmp("A66_ER3", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_ER3;
+		printk("Kernel HW ID = A66_ER3\n");
+	}
+	else if ( strcmp("A66_PR", str) == 0 )
+	{
+		g_A60K_hwID = A66_HW_ID_PR;
+		printk("Kernel HW ID = A66_PR\n");
+	}
+	// --- ASUS_BSP : miniporting : Add for A66 Proj
+	else
+	{
+		g_A60K_hwID = A60K_UNKNOWN;
+		printk("Kernel HW ID = A60K_UNKNOWN\n");
+	}
+	
+	//printk("g_A60K_hwID = %d\n", g_A60K_hwID);
+	return 0;
+}
+
+__setup("HW_ID=", set_hardware_id);
+
+//--- ASUS_BSP : miniporting
+
+//+++ ASUS_BSP : miniporting : TEST for show CUP REVISION
+////////enum CPU_REV g_CPU_REVISION=CPU_REVISION_UNKNOWN;
+//EXPORT_SYMBOL(g_CPU_REVISION);
+static int set_cpu_revision(char *str)
+{
+	//-------------------------------------------------------------------
+	char *all = str;
+	char ID[16]={0};
+	// = {all+1,all+2,all+3};
+	char REV = '0';
+	char HD = '0';
+	char DC = '0';
+
+	strncat(bootimage_command_line, "CPU RV : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	strncpy(ID, (char *)(all+1), 3);
+	strncpy(&REV, (char *)(all+0), 1);
+	strncpy(&HD, (char *)(all+4), 1);
+	strncpy(&DC, (char *)(all+4), 1);
+
+	if ( strcmp("06b", ID) == 0 )
+	//if (strcmpID == "06b")
+	{
+	g_asus_plat_info.cpu_type = M8960;
+	sprintf(g_asus_plat_info.cpu_id, "M8960");
+	}
+	else if ( strcmp("079", ID) == 0 )
+	//else if(ID == "079")
+	{
+	g_asus_plat_info.cpu_type = M8260A;
+	sprintf(g_asus_plat_info.cpu_id, "M8260A");
+	}
+	else 
+	{
+	g_asus_plat_info.cpu_type = CPU_TYPE_UNKNOWN;
+	sprintf(g_asus_plat_info.cpu_id, "CPU_TYPE_UNKNOWN");
+	}
+
+	switch (REV)
+	{
+		case '1':
+		g_asus_plat_info.cpu_revision = CPU_REV_V1;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_V1");
+		break;
+		case '2':
+		g_asus_plat_info.cpu_revision = CPU_REV_V2;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_V2");
+		break;
+		//case '3':
+		//g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		//sprintf(g_asus_plat_info.cpu_ver, "REV_V3");
+		//break;
+		case '4':
+		g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_V3");
+		break;
+		case '5':
+		g_asus_plat_info.cpu_revision = CPU_REV_V4;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_V4");
+		break;
+		case '6':
+		g_asus_plat_info.cpu_revision = CPU_REV_V5;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_V5");
+		break;
+		default:
+		g_asus_plat_info.cpu_revision = CPU_REV_UNKNOWN;
+		sprintf(g_asus_plat_info.cpu_ver, "REV_UNKOWN");
+		break;
+	}
+
+	if (HD == '0'||HD == '2'||HD == '4'||HD == '6'||HD == '8')
+	{
+	g_asus_plat_info.cpu_hdcp = HDCP_OFF;
+	g_asus_plat_info.hdcp = 0;
+	}
+	else if (HD == '1'||HD == '3'||HD == '5'||HD == '7'||HD == '9')
+	{
+	g_asus_plat_info.cpu_hdcp = HDCP_ON;
+	g_asus_plat_info.hdcp = 1;
+	}
+
+	if ( (DC & 0x4) == 0 )
+	{
+		g_asus_plat_info.dc = 1;
+	}
+	else
+	{
+		g_asus_plat_info.dc = 0;
+	} 
+
+	//-------------------------------------------------------------------------
+	//----------M8960
+/*	if ( strcmp("M8960V1_NO_HDCP", str) == 0 )
+	{	
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision =CPU_REV_V1;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8960_V1\n");
+	}
+	else if ( strcmp("M8960V1_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision = CPU_REV_V1;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8960_V1_HDCP\n");
+	}
+	else if ( strcmp("M8960V2_NO_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision = CPU_REV_V2;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8960_V2\n");
+	}
+	else if ( strcmp("M8960V2_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision = CPU_REV_V2;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8960_V2_HDCP\n");
+	}
+	else if ( strcmp("M8960V3_NO_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8960_V3\n");
+	}	
+	else if ( strcmp("M8960V3_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8960;
+		g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8960_V3_HDCP\n");
+	}	
+	//---------M8260
+	else if ( strcmp("M8260V1_NO_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V1;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8260A_V1\n");
+	}
+	else if ( strcmp("M8260V1_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V1;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8260A_V1_HDCP\n");
+	}
+	else if ( strcmp("M8260V2_NO_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V2;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8260A_V2\n");
+	}
+	else if ( strcmp("M8260V2_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V2;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8260A_V2_HDCP\n");
+	}
+	else if ( strcmp("M8260V3_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = M8260A_V3\n");
+	}	
+	else if ( strcmp("M8260V3_NO_HDCP", str) == 0 )
+	{
+		g_asus_plat_info.cpu_type = M8260A;
+		g_asus_plat_info.cpu_revision = CPU_REV_V3;
+		g_asus_plat_info.hdcp = 1;
+		printk("Kernel CPU RV = M8260A_V3_HDCP\n");
+	}	
+	
+	// --- ASUS_BSP : miniporting : Add for A66 Proj
+	else
+	{
+		g_asus_plat_info.cpu_type = CPU_TYPE_UNKNOWN;
+		g_asus_plat_info.cpu_revision = CPU_REV_UNKNOWN;
+		g_asus_plat_info.hdcp = 0;
+		printk("Kernel CPU RV = CPU_REVISION_UNKNOWN\n");
+	}	
+*/
+	printk("CPU_TYPE = %s CPU_REV = %s CPU_HDCP = %d CPU_DC = %d\n"
+		,g_asus_plat_info.cpu_id,g_asus_plat_info.cpu_ver,
+		g_asus_plat_info.hdcp, g_asus_plat_info.dc);
+
+	return 0;
+}
+/*enum CPU_REV g_CPU_REVISION=CPU_REVISION_UNKNOWN;
+EXPORT_SYMBOL(g_CPU_REVISION);
+static int set_cpu_revision(char *str)
+{
+	//----------M8960
+	if ( strcmp("M8960V1_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V1;
+		printk("Kernel CPU RV = M8960_V1\n");
+	}
+	else if ( strcmp("M8960V1_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V1_HDCP;
+		printk("Kernel CPU RV = M8960_V1_HDCP\n");
+	}
+	else if ( strcmp("M8960V2_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V2;
+		printk("Kernel CPU RV = M8960_V2\n");
+	}
+	else if ( strcmp("M8960V2_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V2_HDCP;
+		printk("Kernel CPU RV = M8960_V2_HDCP\n");
+	}
+	else if ( strcmp("M8960V3_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V3;
+		printk("Kernel CPU RV = M8960_V3\n");
+	}	
+	else if ( strcmp("M8960V3_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8960_V3_HDCP;
+		printk("Kernel CPU RV = M8960_V3_HDCP\n");
+	}	
+	//---------M8260
+	else if ( strcmp("M8260V1_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V1;
+		printk("Kernel CPU RV = M8260A_V1\n");
+	}
+	else if ( strcmp("M8260V1_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V1_HDCP;
+		printk("Kernel CPU RV = M8260A_V1_HDCP\n");
+	}
+	else if ( strcmp("M8260V2_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V2;
+		printk("Kernel CPU RV = M8260A_V2\n");
+	}
+	else if ( strcmp("M8260V2_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V2_HDCP;
+		printk("Kernel CPU RV = M8260A_V2_HDCP\n");
+	}
+	else if ( strcmp("M8260V3_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V3;
+		printk("Kernel CPU RV = M8260A_V3\n");
+	}	
+	else if ( strcmp("M8260V3_NO_HDCP", str) == 0 )
+	{
+		g_CPU_REVISION = M8260A_V3_HDCP;
+		printk("Kernel CPU RV = M8260A_V3_HDCP\n");
+	}	
+	
+	// --- ASUS_BSP : miniporting : Add for A66 Proj
+	else
+	{
+		g_CPU_REVISION = CPU_REVISION_UNKNOWN;
+		printk("Kernel CPU RV = CPU_REVISION_UNKNOWN\n");
+	}
+	
+	
+	return 0;
+}
+*/
+__setup("CPU_RV=", set_cpu_revision);
+
+//--- ASUS_BSP : miniporting : TEST for show CUP REVISION
+
+
+//+++ ASUS_BSP : miniporting : Add for get atd ptk mode
+char g_ATD_mode=0;
+char g_PTK_mode=0;
+
+EXPORT_SYMBOL(g_ATD_mode);
+EXPORT_SYMBOL(g_PTK_mode);
+
+static int set_atd_mode(char *str)
+{
+	if ( strcmp("Y", str) == 0 )
+	{
+		g_ATD_mode = 1;
+	}
+	else
+	{
+		g_ATD_mode = 0;
+	}
+	printk("Kernel ATD mode = %d\n", g_ATD_mode);
+	return 0;
+}
+static int set_ptk_mode(char *str)
+{
+	if ( strcmp("Y", str) == 0 )
+	{
+		g_PTK_mode = 1;
+	}
+	else
+	{
+		g_PTK_mode = 0;
+	}
+	printk("Kernel PTK mode = %d\n", g_PTK_mode);
+	return 0;
+}
+
+__setup("ATD=", set_atd_mode);
+__setup("PTK=", set_ptk_mode);
+//--- ASUS_BSP : miniporting : Add for get atd ptk mode
+
+//+++ ASUS_BSP : miniporting : Add for audio dbg mode
+char g_Audio_dbg_mode=0;
+
+EXPORT_SYMBOL(g_Audio_dbg_mode);
+
+static int set_audio_dbg_mode(char *str)
+{
+    if ( strcmp("Y", str) == 0 )
+    {
+        g_Audio_dbg_mode = 1;
+    }
+    else
+    {
+        g_Audio_dbg_mode = 0;
+    }
+    printk("Kernel Audio_Dbg mode = %d\n", g_Audio_dbg_mode);
+    return 0;
+}
+__setup("AUDIO_DBG=", set_audio_dbg_mode);
+//--- ASUS_BSP : miniporting : Add for audio dbg mode
+
+
+
+//+++ ASUS_BSP : Add for sbl info by Enter_Zhang
+char sbl_info[32]={0};
+
+static int set_sbl_info(char *str)
+{
+	strncat(bootimage_command_line, "SBL Ver. : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	return 0;
+}
+__setup("SBL_INFO=", set_sbl_info);
+//--- ASUS_BSP : Add for sbl info by Enter_Zhang
+
+//+++ ASUS_BSP : Add for aboot info by Enter_Zhang
+static int set_aboot_info(char *str)
+{
+	strncat(bootimage_command_line, "Aboot Ver. : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	return 0;
+}
+__setup("ABOOT_INFO=", set_aboot_info);
+//--- ASUS_BSP : Add for aboot info by Enter_Zhang
+
+
+//+++ ASUS_BSP : Add for eMMC type by Enter_Zhang
+static int set_emmc_info(char *str)
+{
+	strncat(bootimage_command_line, "eMMC : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	return 0;
+}
+__setup("eMMC=", set_emmc_info);
+//--- ASUS_BSP : Add for eMMC type by Enter_Zhang
+
+//+++ ASUS_BSP : Add for security by Enter_Zhang
+static int set_SB_info(char *str)
+{
+	strncat(bootimage_command_line, "SB : ", COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, str, COMMAND_LINE_SIZE - 1);
+	strncat(bootimage_command_line, "\n", COMMAND_LINE_SIZE - 1);
+
+	return 0;
+}
+__setup("SB=", set_SB_info);
+//--- ASUS_BSP : Add for security by Enter_Zhang
+
+
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+char g_CHG_mode=0;
+int g_chgmode_extra=0;
+#ifndef ASUS_FACTORY_BUILD
+static int atoi(const char *name)
+{
+	int val = 0;
+	for (;; name++) {
+		switch (*name) {
+		case '0' ... '9':
+			val = 10*val+(*name-'0');
+			break;
+		default:
+			return val;
+		}
+	}
+}
+
+EXPORT_SYMBOL(g_CHG_mode);
+static int set_chg_mode(char *str)
+{
+	if ( strcmp("charger", str) == 0 )
+	{
+		g_CHG_mode = 1;
+	}
+	else
+	{
+		g_CHG_mode = 0;
+	}
+	printk("ICS charger mode = %d\n", g_CHG_mode);
+	return 0;
+}
+__setup("androidboot.mode=", set_chg_mode);
+
+EXPORT_SYMBOL(g_chgmode_extra);
+static int set_chgmode_extra(char *str)
+{
+	g_chgmode_extra = atoi(str);
+	printk("charging mode extra = %d\n", g_chgmode_extra);
+	return 0;
+}
+__setup("chgmode_extra=", set_chgmode_extra);
+#endif
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+
+//+++ASUS_BSP Peter_lu : for set charging current to 1A..........................................
+unsigned int ac_in = 0;
+EXPORT_SYMBOL(ac_in);
+static int check_usb(char *str)
+{
+	if ( strcmp("AC_in", str) == 0 )
+		ac_in = 1;
+	else
+		ac_in = 0;
+	return 0;
+}
+__setup("AC_status=", check_usb);
+//---ASUS_BSP Peter_lu : for set charging current to 1A..........................................
 
 /*
  * If set, this is an indication to the drivers that reset the underlying
@@ -341,6 +906,9 @@ static inline void smp_prepare_cpus(unsigned int maxcpus) { }
 static void __init setup_command_line(char *command_line)
 {
 	saved_command_line = alloc_bootmem(strlen (boot_command_line)+1);
+	bootimage_command_line = alloc_bootmem(COMMAND_LINE_SIZE);
+	bootimage_command_line[0] = '\0';
+	bootimage_command_line[COMMAND_LINE_SIZE - 1] = '\0';
 	static_command_line = alloc_bootmem(strlen (command_line)+1);
 	strcpy (saved_command_line, boot_command_line);
 	strcpy (static_command_line, command_line);
@@ -490,6 +1058,10 @@ asmlinkage void __init start_kernel(void)
 	tick_init();
 	boot_cpu_init();
 	page_address_init();
+	printk(KERN_NOTICE "ASUS_SW_VER=%s\n", ASUS_SW_VER);
+#ifdef ASUS_FACTORY_BUILD
+	printk(KERN_NOTICE "ASUS_FACTORY_BUILD is set\n");
+#endif
 	printk(KERN_NOTICE "%s", linux_banner);
 	setup_arch(&command_line);
 	/*
@@ -676,6 +1248,14 @@ static int __init_or_module do_one_initcall_debug(initcall_t fn)
 	printk(KERN_DEBUG "initcall %pF returned %d after %lld usecs\n", fn,
 		ret, duration);
 
+#ifndef ASUS_SHIP_BUILD
+	if (initcall_debug==0)
+	{
+		if (duration > 100000)
+			printk(KERN_WARNING "[debuginit] initcall %pF returned %d after %lld usecs\n", fn,
+				ret, duration);
+	}
+#endif
 	return ret;
 }
 
@@ -684,10 +1264,14 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	int count = preempt_count();
 	int ret;
 
+#ifndef ASUS_SHIP_BUILD
+	ret = do_one_initcall_debug(fn);
+#else
 	if (initcall_debug)
 		ret = do_one_initcall_debug(fn);
 	else
 		ret = fn();
+#endif
 
 	msgbuf[0] = 0;
 

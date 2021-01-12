@@ -1,22 +1,21 @@
 /*
- $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
+	$License:
+	Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-  $
-*/
-
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	$
+ */
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -28,7 +27,6 @@
 #include <linux/miscdevice.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
-#include <linux/workqueue.h>
 #include <linux/poll.h>
 
 #include <linux/errno.h>
@@ -42,7 +40,6 @@
 #include <linux/mpu.h>
 #include "mpuirq.h"
 #include "mldl_cfg.h"
-#include "mpu-i2c.h"
 
 #define MPUIRQ_NAME "mpuirq"
 
@@ -51,7 +48,6 @@
 DECLARE_WAIT_QUEUE_HEAD(mpuirq_wait);
 
 struct mpuirq_dev_data {
-	struct work_struct work;
 	struct i2c_client *mpu_client;
 	struct miscdevice *dev;
 	int irq;
@@ -64,8 +60,6 @@ struct mpuirq_dev_data {
 static struct mpuirq_dev_data mpuirq_dev_data;
 static struct mpuirq_data mpuirq_data;
 static char *interface = MPUIRQ_NAME;
-
-static void mpu_accel_data_work_fcn(struct work_struct *work);
 
 static int mpuirq_open(struct inode *inode, struct file *file)
 {
@@ -91,11 +85,9 @@ static ssize_t mpuirq_read(struct file *file,
 	struct mpuirq_dev_data *p_mpuirq_dev_data = file->private_data;
 
 	if (!mpuirq_dev_data.data_ready &&
-		mpuirq_dev_data.timeout &&
-		(!(file->f_flags & O_NONBLOCK))) {
+	    mpuirq_dev_data.timeout && (!(file->f_flags & O_NONBLOCK))) {
 		wait_event_interruptible_timeout(mpuirq_wait,
-						 mpuirq_dev_data.
-						 data_ready,
+						 mpuirq_dev_data.data_ready,
 						 mpuirq_dev_data.timeout);
 	}
 
@@ -103,8 +95,6 @@ static ssize_t mpuirq_read(struct file *file,
 	    && count >= sizeof(mpuirq_data)) {
 		err = copy_to_user(buf, &mpuirq_data, sizeof(mpuirq_data));
 		mpuirq_data.data_type = 0;
-		dev_dbg(mpuirq_dev_data.dev->this_device,
-			"%s:copy_to_user\n", __func__);
 	} else {
 		return 0;
 	}
@@ -123,20 +113,16 @@ unsigned int mpuirq_poll(struct file *file, struct poll_table_struct *poll)
 	int mask = 0;
 
 	poll_wait(file, &mpuirq_wait, poll);
-	dev_dbg(mpuirq_dev_data.dev->this_device, "%s\n", __func__);
 	if (mpuirq_dev_data.data_ready)
 		mask |= POLLIN | POLLRDNORM;
 	return mask;
 }
 
 /* ioctl - I/O control */
-static long mpuirq_ioctl(struct file *file,
-			 unsigned int cmd, unsigned long arg)
+static long mpuirq_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int retval = 0;
 	int data;
-
-	dev_dbg(mpuirq_dev_data.dev->this_device, "%s:%d\n", __func__, cmd);
 
 	switch (cmd) {
 	case MPUIRQ_SET_TIMEOUT:
@@ -148,11 +134,11 @@ static long mpuirq_ioctl(struct file *file,
 		if (mpuirq_data.interruptcount > 1)
 			mpuirq_data.interruptcount = 1;
 
-		if (copy_to_user((int *) arg, &data, sizeof(int)))
+		if (copy_to_user((int *)arg, &data, sizeof(int)))
 			return -EFAULT;
 		break;
 	case MPUIRQ_GET_IRQ_TIME:
-		if (copy_to_user((int *) arg, &mpuirq_data.irqtime,
+		if (copy_to_user((int *)arg, &mpuirq_data.irqtime,
 				 sizeof(mpuirq_data.irqtime)))
 			return -EFAULT;
 		mpuirq_data.irqtime = 0;
@@ -164,43 +150,6 @@ static long mpuirq_ioctl(struct file *file,
 		retval = -EINVAL;
 	}
 	return retval;
-}
-
-static void mpu_accel_data_work_fcn(struct work_struct *work)
-{
-	struct mpuirq_dev_data *mpuirq_dev_data =
-	    (struct mpuirq_dev_data *) work;
-	struct mldl_cfg *mldl_cfg =
-	    (struct mldl_cfg *)
-	    i2c_get_clientdata(mpuirq_dev_data->mpu_client);
-	struct i2c_adapter *accel_adapter;
-	unsigned char wbuff[16];
-	unsigned char rbuff[16];
-	int ii;
-
-	accel_adapter = i2c_get_adapter(mldl_cfg->pdata->accel.adapt_num);
-	dev_dbg(mpuirq_dev_data->dev->this_device, "%s\n", __func__);
-
-	mldl_cfg->accel->read(accel_adapter,
-			      mldl_cfg->accel,
-			      &mldl_cfg->pdata->accel, rbuff);
-
-
-	/* @todo add other data formats here as well */
-	if (EXT_SLAVE_BIG_ENDIAN == mldl_cfg->accel->endian) {
-		for (ii = 0; ii < 3; ii++) {
-			wbuff[2 * ii + 1] = rbuff[2 * ii + 1];
-			wbuff[2 * ii + 2] = rbuff[2 * ii + 0];
-		}
-	} else {
-		memcpy(wbuff + 1, rbuff, mldl_cfg->accel->len);
-	}
-
-	wbuff[7] = 0;
-	wbuff[8] = 1;		/*set semaphore */
-
-	mpu_memory_write(mpuirq_dev_data->mpu_client->adapter,
-			 mldl_cfg->addr, 0x0108, 8, wbuff);
 }
 
 static irqreturn_t mpuirq_handler(int irq, void *dev_id)
@@ -216,20 +165,15 @@ static irqreturn_t mpuirq_handler(int irq, void *dev_id)
 	mpuirq_dev_data.data_ready = 1;
 
 	do_gettimeofday(&irqtime);
-	mpuirq_data.irqtime = (((long long) irqtime.tv_sec) << 32);
+	mpuirq_data.irqtime = (((long long)irqtime.tv_sec) << 32);
 	mpuirq_data.irqtime += irqtime.tv_usec;
-
-	if ((mpuirq_dev_data.accel_divider >= 0) &&
-		(0 == (mycount % (mpuirq_dev_data.accel_divider + 1)))) {
-		schedule_work((struct work_struct
-				*) (&mpuirq_dev_data));
-	}
+	mpuirq_data.data_type = MPUIRQ_DATA_TYPE_MPU_IRQ;
+	mpuirq_data.data = 0;
 
 	wake_up_interruptible(&mpuirq_wait);
-	dev_dbg(mpuirq_dev_data.dev->this_device,
-		"%s:wake_up_interruptible\n", __func__);
 
 	return IRQ_HANDLED;
+
 }
 
 /* define which file operations are supported */
@@ -238,12 +182,7 @@ const struct file_operations mpuirq_fops = {
 	.read = mpuirq_read,
 	.poll = mpuirq_poll,
 
-#if HAVE_COMPAT_IOCTL
-	.compat_ioctl = mpuirq_ioctl,
-#endif
-#if HAVE_UNLOCKED_IOCTL
 	.unlocked_ioctl = mpuirq_ioctl,
-#endif
 	.open = mpuirq_open,
 	.release = mpuirq_release,
 };
@@ -254,16 +193,10 @@ static struct miscdevice mpuirq_device = {
 	.fops = &mpuirq_fops,
 };
 
-int mpuirq_init(struct i2c_client *mpu_client)
+int mpuirq_init(struct i2c_client *mpu_client, struct mldl_cfg *mldl_cfg)
 {
-
 	int res;
-	struct mldl_cfg *mldl_cfg =
-	    (struct mldl_cfg *) i2c_get_clientdata(mpu_client);
 
-	/* work_struct initialization */
-	INIT_WORK((struct work_struct *) &mpuirq_dev_data,
-		  mpu_accel_data_work_fcn);
 	mpuirq_dev_data.mpu_client = mpu_client;
 
 	dev_info(&mpu_client->adapter->dev,
@@ -278,12 +211,12 @@ int mpuirq_init(struct i2c_client *mpu_client)
 
 	if (mpuirq_dev_data.irq) {
 		unsigned long flags;
-		if (BIT_ACTL_LOW ==
-		    ((mldl_cfg->pdata->int_config) & BIT_ACTL))
+		if (BIT_ACTL_LOW == ((mldl_cfg->pdata->int_config) & BIT_ACTL))
 			flags = IRQF_TRIGGER_FALLING;
 		else
 			flags = IRQF_TRIGGER_RISING;
 
+		flags |= IRQF_SHARED;
 		res =
 		    request_irq(mpuirq_dev_data.irq, mpuirq_handler, flags,
 				interface, &mpuirq_dev_data.irq);
@@ -293,37 +226,26 @@ int mpuirq_init(struct i2c_client *mpu_client)
 				mpuirq_dev_data.irq);
 		} else {
 			res = misc_register(&mpuirq_device);
-			dev_dbg(mpuirq_dev_data.dev->this_device,
-				 "misc_register(&mpuirq_device):%x\n", res);
-
 			if (res < 0) {
 				dev_err(&mpu_client->adapter->dev,
-					"misc_register returned %d\n",
-					res);
+					"misc_register returned %d\n", res);
 				free_irq(mpuirq_dev_data.irq,
 					 &mpuirq_dev_data.irq);
 			}
 		}
-
 	} else {
 		res = 0;
 	}
-	dev_dbg(mpuirq_dev_data.dev->this_device,
-		"%s :%d\n", __func__, mpu_client->irq);
 
 	return res;
 }
 
 void mpuirq_exit(void)
 {
-	/* Free the IRQ first before flushing the work */
 	if (mpuirq_dev_data.irq > 0)
 		free_irq(mpuirq_dev_data.irq, &mpuirq_dev_data.irq);
 
-	flush_scheduled_work();
-
-	dev_info(mpuirq_device.this_device, "Unregistering %s\n",
-		 MPUIRQ_NAME);
+	dev_info(mpuirq_device.this_device, "Unregistering %s\n", MPUIRQ_NAME);
 	misc_deregister(&mpuirq_device);
 
 	return;

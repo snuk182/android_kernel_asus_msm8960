@@ -22,6 +22,8 @@
  * and macros DECLARE_COMPLETION(), DECLARE_COMPLETION_ONSTACK(), and
  * INIT_COMPLETION().
  */
+ 
+#ifdef ASUS_SHIP_BUILD
 struct completion {
 	unsigned int done;
 	wait_queue_head_t wait;
@@ -29,6 +31,16 @@ struct completion {
 
 #define COMPLETION_INITIALIZER(work) \
 	{ 0, __WAIT_QUEUE_HEAD_INITIALIZER((work).wait) }
+#else
+struct completion {
+	unsigned int done;
+	wait_queue_head_t wait;
+	char name[32];
+};
+#define COMPLETION_INITIALIZER(work) \
+	{ 0, __WAIT_QUEUE_HEAD_INITIALIZER((work).wait), #work }
+#endif
+
 
 #define COMPLETION_INITIALIZER_ONSTACK(work) \
 	({ init_completion(&work); work; })

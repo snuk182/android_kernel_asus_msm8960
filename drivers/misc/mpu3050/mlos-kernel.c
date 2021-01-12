@@ -1,6 +1,6 @@
 /*
  $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
+    Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -31,59 +31,59 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 
-void *MLOSMalloc(unsigned int numBytes)
+void *inv_malloc(unsigned int numBytes)
 {
 	return kmalloc(numBytes, GFP_KERNEL);
 }
 
-unchar MLOSFree(void *ptr)
+inv_error_t inv_free(void *ptr)
 {
 	kfree(ptr);
-	return ML_SUCCESS;
+	return INV_SUCCESS;
 }
 
-unchar MLOSCreateMutex(uint *mutex)
+inv_error_t inv_create_mutex(HANDLE *mutex)
 {
 	/* @todo implement if needed */
-	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+	return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
-unchar MLOSLockMutex(uint mutex)
+inv_error_t inv_lock_mutex(HANDLE mutex)
 {
 	/* @todo implement if needed */
-	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+	return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
-unchar MLOSUnlockMutex(uint mutex)
+inv_error_t inv_unlock_mutex(HANDLE mutex)
 {
 	/* @todo implement if needed */
-	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+	return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
-unchar MLOSDestroyMutex(uint handle)
+inv_error_t inv_destroy_mutex(HANDLE handle)
 {
 	/* @todo implement if needed */
-	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+	return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
-uint *MLOSFOpen(char *filename)
+FILE *inv_fopen(char *filename)
 {
 	/* @todo implement if needed */
 	return NULL;
 }
 
-void MLOSFClose(uint *fp)
+void inv_fclose(FILE *fp)
 {
 	/* @todo implement if needed */
 }
 
-void MLOSSleep(int mSecs)
+void inv_sleep(int mSecs)
 {
 	msleep(mSecs);
 }
 
-unsigned long MLOSGetTickCount(void)
+unsigned long inv_get_tick_count(void)
 {
 	/* @todo implement if needed */
-	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+	return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 }

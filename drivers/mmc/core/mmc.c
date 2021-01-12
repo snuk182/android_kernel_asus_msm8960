@@ -68,6 +68,52 @@ static const struct mmc_fixup mmc_fixups[] = {
 	END_FIXUP
 };
 
+//ASUS_BSP +++ Josh_Liao "emmc info for ATD"
+static struct {
+	u32 sec_cnt;
+	char *band_type;
+} emmc_stat_tbl[] = {
+	{ 0x1cce000, "KINGSTON_16G" },
+	{ 0x39f4000, "KINGSTON_32G" },
+	{ 0x1d9c000, "HYNIX_16G_H26M52002CKR" },
+	{ 0x3b84000, "HYNIX_32G_H26M64002BNR" },
+	{ 0x766c000, "HYNIX_64G_H26M78002ANR" },
+	{ 0x1d74000, "HYNIX_16G_H26M54001DQR" },
+	{ 0x3af4000, "HYNIX_32G_H26M68001CFR" },	
+	{ 0x1d5c000, "HYNIX_16G_H26M52002EQR_20nm" },
+	{ 0x3a40000, "HYNIX_32G_H26M64002DQR_20nm" },
+	{ 0x7480000, "HYNIX_64G_H26M78002BFR_20nm" },
+	{ 0x1de8000, "TOSHIBA_16G" },
+	{ 0x3b70000, "TOSHIBA_32G" },
+	{ 0x3b9c000, "ASINT_32G" }
+};
+
+#define EMMC_STAT_TBL_MAX	(sizeof(emmc_stat_tbl)/sizeof(emmc_stat_tbl[0]))
+
+static char * asus_get_emmc_status(struct mmc_card *card)
+{
+	u32 i;
+	u32 ext_csd_sector_count;
+
+	ext_csd_sector_count = card->ext_csd.raw_sectors[0] << 0 |card->ext_csd.raw_sectors[1] << 8 | card->ext_csd.raw_sectors[2] << 16 |card->ext_csd.raw_sectors[3] << 24;
+
+	for (i = 0; i < EMMC_STAT_TBL_MAX; i++) {
+		if (ext_csd_sector_count == emmc_stat_tbl[i].sec_cnt)
+			return emmc_stat_tbl[i].band_type;
+	}
+
+	return "Unknown";
+}
+
+static int asus_get_emmc_prv(struct mmc_card *card)
+{
+	int prv;
+	u32 *resp = card->raw_cid;
+	prv = UNSTUFF_BITS(resp, 48, 8);
+	return prv;
+}
+//ASUS_BSP --- Josh_Liao "emmc info for ATD"
+
 /*
  * Given the decoded CSD structure, decode the raw CID to our CID structure.
  */
@@ -673,6 +719,13 @@ MMC_DEV_ATTR(enhanced_area_offset, "%llu\n",
 MMC_DEV_ATTR(enhanced_area_size, "%u\n", card->ext_csd.enhanced_area_size);
 MMC_DEV_ATTR(ext_csd_rev, "%d\n", card->ext_csd.rev);
 
+//ASUS_BSP +++ Josh_Liao "emmc info for ATD"
+MMC_DEV_ATTR(emmc_prv, "0x%x\n", asus_get_emmc_prv(card));
+MMC_DEV_ATTR(emmc_status, "%s\n", asus_get_emmc_status(card));
+MMC_DEV_ATTR(emmc_size, "0x%02x%02x%02x%02x\n", card->ext_csd.raw_sectors[3], card->ext_csd.raw_sectors[2],
+	card->ext_csd.raw_sectors[1], card->ext_csd.raw_sectors[0]);
+//ASUS_BSP --- Josh_Liao "emmc info for ATD"
+
 static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_cid.attr,
 	&dev_attr_csd.attr,
@@ -688,6 +741,11 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_enhanced_area_offset.attr,
 	&dev_attr_enhanced_area_size.attr,
 	&dev_attr_ext_csd_rev.attr,
+//ASUS_BSP +++ Josh_Liao "emmc info for ATD"
+	&dev_attr_emmc_prv.attr,
+	&dev_attr_emmc_status.attr,
+	&dev_attr_emmc_size.attr,
+//ASUS_BSP --- Josh_Liao "emmc info for ATD"
 	NULL,
 };
 
@@ -1466,8 +1524,32 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
-	if (!oldcard)
+	if (!oldcard){
+		// ASUS_BSP+++ Enter_Zhang: Forbidden FUA for Hynix 16G EMMC
+		u32 ext_csd_sector_count;
+		ext_csd_sector_count = (card->ext_csd.raw_sectors[0] << 0) |
+							   (card->ext_csd.raw_sectors[1] << 8) |
+							   (card->ext_csd.raw_sectors[2] << 16) |
+							   (card->ext_csd.raw_sectors[3] << 24);
+
+		if(card->host->pdev_id == 1 &&
+		   (ext_csd_sector_count == 0x1d9c000 ||	// HYNIX_16G_H26M52002CKR
+		   ext_csd_sector_count == 0x3b84000 || 	// HYNIX_32G_H26M64002BNR
+		   ext_csd_sector_count == 0x766c000 ||		// HYNIX_64G_H26M78002ANR
+		   ext_csd_sector_count == 0x1d74000 ||		// HYNIX_16G_H26M54001DQR
+		   ext_csd_sector_count == 0x3af4000)) 		// HYNIX_32G_H26M68001CFR
+		{
+			card->fua_forbidden = true;
+			pr_warning("%s: Found Hynix 16G eMMC Card, forbidden FUA.\n",
+					mmc_hostname(card->host));
+		}
+		else {
+			card->fua_forbidden = false;
+		}
+		// ASUS_BSP--- Enter_Zhang: Forbidden FUA for Hynix 16G EMMC
+
 		host->card = card;
+	}
 
 	mmc_free_ext_csd(ext_csd);
 	return 0;
@@ -1697,6 +1779,19 @@ static int mmc_sleep(struct mmc_host *host)
 	return err;
 }
 
+//ASUS_BSP +++ Josh_Liao "workaround to make card always has response after resume"
+static int mmc_awake_again(struct mmc_host *host)
+{
+	int err = -ENOSYS;
+	pr_info("%s: awaking card again\n", mmc_hostname(host));
+	err = mmc_card_sleepawake(host, 0);
+	if (err < 0)
+		pr_err("%s: Error %d 2nd awaking sleeping card" , mmc_hostname(host), err);	
+
+	return err;
+}
+//ASUS_BSP --- Josh_Liao "workaround to make card always has response after resume"
+
 static int mmc_awake(struct mmc_host *host)
 {
 	struct mmc_card *card = host->card;
@@ -1704,9 +1799,14 @@ static int mmc_awake(struct mmc_host *host)
 
 	if (card && card->ext_csd.rev >= 3) {
 		err = mmc_card_sleepawake(host, 0);
-		if (err < 0)
-			pr_debug("%s: Error %d while awaking sleeping card",
+		if (err < 0) {
+			pr_err("%s: Error %d while awaking sleeping card",
 				 mmc_hostname(host), err);
+//ASUS_BSP +++ Josh_Liao "workaround to make card always has response after resume"
+			if (err == -ETIMEDOUT)
+				err = mmc_awake_again(host);
+//ASUS_BSP --- Josh_Liao "workaround to make card always has response after resume"
+		}
 	}
 
 	return err;

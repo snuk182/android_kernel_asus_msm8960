@@ -53,6 +53,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
 
+//thomas_chu +++
+#include <linux/asus_global.h>
+//thomas_chu ---
 /*
  * Architectures can override it:
  */
@@ -660,6 +663,10 @@ const struct file_operations kmsg_fops = {
 	.release = devkmsg_release,
 };
 
+static char *g_printk_log_buf;
+
+//jack 
+int suspend_in_progress = 0;
 
 #ifdef CONFIG_KEXEC
 /*
@@ -683,6 +690,30 @@ void log_buf_kexec_setup(void)
 static unsigned long __initdata new_log_buf_len;
 
 /* save requested log_buf_len since it's too early to process it */
+
+//thomas_chu +++
+struct _asus_global asus_global =
+{
+		.asus_global_magic = ASUS_GLOBAL_MAGIC,
+		.ramdump_enable_magic = ASUS_GLOBAL_RUMDUMP_MAGIC,
+		.kernel_log_addr = __log_buf,
+		.kernel_log_size = __LOG_BUF_LEN,
+		.log_main_addr=0,
+		.sizeof_log_main=0,
+		.log_system_addr=0,
+		.sizeof_log_system=0,
+		.log_events_addr=0,
+		.sizeof_log_events=0,
+		.log_radio_addr=0,
+		.sizeof_log_radio=0,
+		.tag = ASUS_GLOBAL_TAG,
+		.global_major_ver = ASUS_GLOBAL_MAJOR_VER,
+		.global_minor_ver = ASUS_GLOBAL_MINOR_VER,
+//		.kernel_version = ASUS_SW_VER,
+};
+
+//thomas_chu ---
+
 static int __init log_buf_len_setup(char *str)
 {
 	unsigned size = memparse(str, &str);
@@ -1550,7 +1581,15 @@ asmlinkage int vprintk_emit(int facility, int level,
 		text_len--;
 		lflags |= LOG_NEWLINE;
 	}
-
+// ASUS_BSP +++ : keep ASUS debug G0/G1 messages
+	if(text[0] == ASUS_MSK_MAGIC)
+	{
+		// set the loglevel to 8 to prevent from console output
+		text[0]='<';
+		text[1]='8';
+		text[2]='>';
+	}
+// ASUS_BSP ---
 	/* strip syslog prefix and extract log level or control flags */
 	if (text[0] == '<' && text[1] && text[2] == '>') {
 		switch (text[1]) {
@@ -1664,10 +1703,23 @@ EXPORT_SYMBOL(printk_emit);
  *
  * See the vsnprintf() documentation for format string extensions over C99.
  */
+
+unsigned char debug_mask_setting[ASUS_MSK_GROUP] = DEFAULT_MASK;
+EXPORT_SYMBOL(debug_mask_setting);
+extern int entering_suspend;
+extern int g_user_dbg_mode;
 asmlinkage int printk(const char *fmt, ...)
 {
 	va_list args;
 	int r;
+
+	unsigned char *p;
+// +++ ASUS_BSP : add for user build
+#ifdef ASUS_SHIP_BUILD
+	if ( g_user_dbg_mode==0 )
+		return 0;
+#endif
+// --- ASUS_BSP : add for user build
 
 #ifdef CONFIG_KGDB_KDB
 	if (unlikely(kdb_trap_printk)) {
@@ -1680,6 +1732,40 @@ asmlinkage int printk(const char *fmt, ...)
 	va_start(args, fmt);
 	r = vprintk_emit(0, -1, NULL, 0, fmt, args);
 	va_end(args);
+#if 0
+	va_start(args, fmt);
+	r = vprintk_emit(0, -1, NULL, 0, fmt, args);
+	va_end(args);
+#else
+//20100930 jack_wong to add asus_debug mechanism +++++	
+    p = (unsigned char*) fmt;
+
+    if(p[0] == ASUS_MSK_MAGIC)
+    {
+
+		if(debug_mask_setting[p[1]] & p[2])
+		{
+			p += 3;
+		}
+		else
+		{
+			if(p[2] > 3)
+			{
+				return 0;
+			}
+			else
+			{
+				// let vprintk() to handle it
+			}
+		}
+    }
+	fmt=p;
+	va_start(args, fmt);
+	r = vprintk_emit(0, -1, NULL, 0, (char*)p, args);
+	va_end(args);
+    
+//20100930 jack_wong to add asus_debug mechanism -----
+#endif
 
 	return r;
 }
@@ -1856,6 +1942,8 @@ MODULE_PARM_DESC(console_suspend, "suspend console during suspend"
  */
 void suspend_console(void)
 {
+        ASUSEvtlog("[UTS] System Suspend");
+	suspend_in_progress = 1;
 	if (!console_suspend_enabled)
 		return;
 	printk("Suspending console(s) (use no_console_suspend to debug)\n");
@@ -1866,6 +1954,48 @@ void suspend_console(void)
 
 void resume_console(void)
 {
+
+        int i;  //Ledger
+
+        suspend_in_progress = 0;
+        ASUSEvtlog("[UTS] System Resume");
+
+#if 0
+//++Ledger
+        if (pm_pwrcs_ret) {
+                ASUSEvtlog("[PM] Suspended for %d.%03d secs ", pwrcs_time/100,pwrcs_time % 100);
+
+                if (gpio_irq_cnt>0) {
+                        for (i=0;i<gpio_irq_cnt;i++)
+                            ASUSEvtlog("[PM] GPIO triggered: %d", gpio_resume_irq[i]);
+                        gpio_irq_cnt=0; //clear log count.
+                }
+                if (gic_irq_cnt>0) {
+                        for (i=0;i<gic_irq_cnt;i++)
+                            ASUSEvtlog("[PM] IRQs triggered: %d", gic_resume_irq[i]);
+                        gic_irq_cnt=0;  //clear log count.
+                }
+                pm_pwrcs_ret=0;
+        }
+//--Ledger
+#else
+ //++Ledger
+        //ASUSEvtlog("[PM] PWRCS spent:%lld ns\n", pwrcs_time);
+	ASUSEvtlog("[PM]Suspended for %d.%03d seconds\n", pwrcs_time / 100 ,pwrcs_time % 100);
+        if (gpio_irq_cnt>0) {
+                for (i=0;i<gpio_irq_cnt;i++)
+                        ASUSEvtlog("[PM] GPIO triggered: %d", gpio_resume_irq[i]);
+	gpio_irq_cnt=0; //clear gpio log
+        }
+       if (gic_irq_cnt>0) {
+               for (i=0;i<gic_irq_cnt;i++)
+                        ASUSEvtlog("[PM] IRQs triggered: %d", gic_resume_irq[i]);
+	gic_irq_cnt=0; //clear irq log
+         }
+ //--Ledger
+#endif
+
+
 	if (!console_suspend_enabled)
 		return;
 	down(&console_sem);
@@ -2478,7 +2608,7 @@ static int __init printk_late_init(void)
 }
 late_initcall(printk_late_init);
 
-#if defined CONFIG_PRINTK
+#if defined(CONFIG_PRINTK)
 
 int printk_deferred(const char *fmt, ...)
 {
@@ -2854,4 +2984,86 @@ void kmsg_dump_rewind(struct kmsg_dumper *dumper)
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
+//by jack for debug message buffer change
+void printk_buffer_rebase(void)
+{
+    char *new_log_buf;
+    unsigned long flags;
+
+    new_log_buf = g_printk_log_buf = (char *) PRINTK_BUFFER;//__va(PRINTK_BUFFER);  
+    printk("printk_buffer_rebase new_log_buf=%p\n", new_log_buf);
+    if (!new_log_buf) {
+        printk( "printk_buffer_rebase log_buf_len: allocation failed\n");
+        goto out;
+    }
+    
+    memset(g_printk_log_buf, 0, PRINTK_BUFFER_SLOT_SIZE);
+    
+    raw_spin_lock_irqsave(&logbuf_lock, flags);
+    log_buf_len = PRINTK_BUFFER_SLOT_SIZE;
+    log_buf = new_log_buf;
+	asus_global.kernel_log_addr = log_buf;
+	asus_global.kernel_log_size = log_buf_len;
+	
+	memset( asus_global.kernel_version,0,sizeof(asus_global.kernel_version));
+	strncpy(asus_global.kernel_version,ASUS_SW_VER,sizeof(asus_global.kernel_version));
+/*    offset = start = min(console_idx, log_first_idx);
+    dest_idx = 0;
+    while (start != log_end) {
+        log_buf[dest_idx] = __log_buf[start & (__LOG_BUF_LEN - 1)];
+        start++;
+        dest_idx++;
+    }
+    log_first_idx -= offset;
+    console_idx -= offset;
+    log_end -= offset;
+*/
+	memcpy(__log_buf, log_buf, __LOG_BUF_LEN);
+
+    raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+
+    printk( "printk_buffer_rebase log_buf_len: %d\n", log_buf_len);
+    
+out:    
+    return;    
+}
+EXPORT_SYMBOL(printk_buffer_rebase);       
+
+#if defined(CONFIG_DEBUG_FS)
+#include <linux/debugfs.h>
+static int Asus_ramdump_debug_set(void *data, u64 val)
+{
+	if (val == 1)
+		asus_global.ramdump_enable_magic = ASUS_GLOBAL_RUMDUMP_MAGIC;
+	else
+		asus_global.ramdump_enable_magic = 0;
+		
+	return 0;
+}
+
+static int Asus_ramdump_debug_get(void *data, u64 *val)
+{
+	if (asus_global.ramdump_enable_magic == ASUS_GLOBAL_RUMDUMP_MAGIC)
+	*val = 1;
+	else
+	*val = 0;
+	
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(Asus_ramdump_debug_fops, Asus_ramdump_debug_get, Asus_ramdump_debug_set, "%llu\n");
+static int __init Asus_ramdump_debug_init(void)
+{
+	struct dentry *dent;
+
+	dent = debugfs_create_dir("Asus_ramdump", 0);
+	if (IS_ERR(dent))
+		return PTR_ERR(dent);
+
+	debugfs_create_file("Asus_ramdump_flag", 0644, dent, NULL, &Asus_ramdump_debug_fops);
+
+	return 0;
+}
+
+device_initcall(Asus_ramdump_debug_init);
+#endif
 #endif

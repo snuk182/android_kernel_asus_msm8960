@@ -218,6 +218,12 @@ enum msm_camera_vreg_name_t {
 struct msm_camera_sensor_platform_info {
 	int mount_angle;
 	int sensor_reset;
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	int isp_pwr_en;
+	int vga_cmos_mclk_en;
+	int cam_1p8_en;
+	int cam_write_protect;
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	struct camera_vreg_t *cam_vreg;
 	int num_vreg;
 	int32_t (*ext_power_ctrl) (int enable);
@@ -449,6 +455,15 @@ struct mipi_dsi_platform_data {
 	int target_type;
 };
 
+//ASUS BSP TIM-2011.10.11++
+struct a60k_backlight_data {
+    int max_backlight_level;
+    int min_backlight_level;
+    int *gpio;
+};
+//ASUS BSP TIM-2011.10.11--
+//+++ ASUS_BSP
+
 enum mipi_dsi_3d_ctrl {
 	FPGA_EBI2_INTF,
 	FPGA_SPI_INTF,
@@ -505,6 +520,7 @@ struct msm_hdmi_platform_data {
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
 	bool (*source)(void);
+   void (*ddc_switch)(bool ddc, bool on);   //Mickey, add for hdmi ddc switch
 	bool is_mhl_enabled;
 };
 

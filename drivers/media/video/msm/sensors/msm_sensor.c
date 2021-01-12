@@ -374,8 +374,12 @@ int32_t msm_sensor_get_output_info(struct msm_sensor_ctrl_t *s_ctrl,
 
 static int32_t msm_sensor_release(struct msm_sensor_ctrl_t *s_ctrl)
 {
+#if 0
 	CDBG("%s called\n", __func__);
 	s_ctrl->func_tbl->sensor_stop_stream(s_ctrl);
+#endif
+	msleep(10); 
+	printk("msm_sensor_release end");
 	return 0;
 }
 
@@ -1856,7 +1860,7 @@ int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 			pr_err("%s: %s power_up failed rc = %d\n", __func__,
 				s_ctrl->sensordata->sensor_name, rc);
 			s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
-		} else {
+		/*} else {
 			if (s_ctrl->func_tbl->sensor_match_id)
 				rc = s_ctrl->func_tbl->sensor_match_id(s_ctrl);
 			else
@@ -1873,7 +1877,7 @@ int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 				s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
 				goto power_up_failed;
 			}
-			s_ctrl->sensor_state = MSM_SENSOR_POWER_UP;
+			s_ctrl->sensor_state = MSM_SENSOR_POWER_UP; */
 		}
 	} else {
 		if(s_ctrl->sensor_state == MSM_SENSOR_POWER_DOWN) {
@@ -1884,7 +1888,7 @@ int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 		rc = s_ctrl->func_tbl->sensor_power_down(s_ctrl);
 		s_ctrl->sensor_state = MSM_SENSOR_POWER_DOWN;
 	}
-power_up_failed:
+//power_up_failed:
 	mutex_unlock(s_ctrl->msm_sensor_mutex);
 	return rc;
 }

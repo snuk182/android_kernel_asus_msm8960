@@ -1638,6 +1638,13 @@ struct task_struct {
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 	atomic_t ptrace_bp_refcnt;
 #endif
+#ifndef ASUS_SHIP_BUILD
+	int *pworker;
+    int binder_call_to_proc_pid;
+    int binder_call_to_thread_pid;
+    int binder_call_code;
+    
+#endif
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */

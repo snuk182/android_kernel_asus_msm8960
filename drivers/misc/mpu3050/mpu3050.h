@@ -1,22 +1,31 @@
 /*
- $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
- $
+	$License:
+	Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
+
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	$
  */
+
+#ifndef __MPU_H_
+#error Do not include this file directly.  Include mpu.h instead.
+#endif
 
 #ifndef __MPU3050_H_
 #define __MPU3050_H_
 
 #include <linux/types.h>
-#include <linux/i2c.h>
-#include <linux/i2c-dev.h>
 
-#if defined(MPUDEBUG)
-#define mpu_dbg(format, arg...)		\
-	printk(KERN_DEBUG format, ## arg);
-#else
-#define mpu_dbg(format, arg...)
-#endif
 
 #define MPU_NAME "mpu3050"
 #define DEFAULT_MPU_SLAVEADDR       0x68
@@ -136,7 +145,6 @@ enum mpu_register {
 #define BIT_OPEN_DRAIN              0x40
 #define BIT_PUSH_PULL               0x00
 #define BIT_LATCH_INT_EN            0x20
-#define BIT_LATCH_INT_EN            0x20
 #define BIT_INT_PULSE_WIDTH_50US    0x00
 #define BIT_INT_ANYRD_2CLEAR        0x10
 #define BIT_INT_STAT_READ_2CLEAR    0x00
@@ -190,8 +198,6 @@ enum MPU_MEMORY_BANKS {
 	MPU_MEM_NUM_BANKS
 };
 
-#define MPU_NUM_AXES (3)
-
 /*---- structure containing control variables used by MLDL ----*/
 /*---- MPU clock source settings ----*/
 /*---- MPU filter selections ----*/
@@ -240,6 +246,6 @@ enum mpu_ext_sync {
 };
 
 #define DLPF_FS_SYNC_VALUE(ext_sync, full_scale, lpf) \
-    ((ext_sync << 5) | (full_scale << 3) | lpf)
+	((ext_sync << 5) | (full_scale << 3) | lpf)
 
 #endif				/* __MPU3050_H_ */

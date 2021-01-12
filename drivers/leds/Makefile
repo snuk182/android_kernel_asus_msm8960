@@ -69,3 +69,8 @@ obj-$(CONFIG_LEDS_TRIGGER_BACKLIGHT)	+= ledtrig-backlight.o
 obj-$(CONFIG_LEDS_TRIGGER_GPIO)		+= ledtrig-gpio.o
 obj-$(CONFIG_LEDS_TRIGGER_DEFAULT_ON)	+= ledtrig-default-on.o
 obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
+#ASUS BSP TIM-2011.10.11
+obj-$(CONFIG_A60K_BACKLIGHT)	        += a60k_backlight.o
+obj-$(CONFIG_P02_BACKLIGHT)	        += p02_backlight.o
+obj-$(CONFIG_P02_SCALER_UPDATE)	        += p02_scaler_update.o
+

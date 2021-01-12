@@ -102,6 +102,8 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	else
 		down(&mfd->dma->mutex);
 
+	mdp4_overlay_dsi_state_set(ST_DSI_SUSPEND);
+
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
 		mipi_dsi_prepare_ahb_clocks();
 		mipi_dsi_ahb_ctrl(1);
@@ -344,6 +346,8 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		mipi_dsi_ahb_ctrl(0);
 		mipi_dsi_unprepare_ahb_clocks();
 	}
+
+	mdp4_overlay_dsi_state_set(ST_DSI_RESUME);
 
 	if (mdp_rev >= MDP_REV_41)
 		mutex_unlock(&mfd->dma->ov_mutex);

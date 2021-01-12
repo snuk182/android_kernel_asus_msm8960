@@ -280,6 +280,10 @@ struct fb_var_screeninfo {
 	__u32 rotate;			/* angle we rotate counter clockwise */
 	__u32 colorspace;		/* colorspace for FOURCC-based modes */
 	__u32 reserved[4];		/* Reserved for future compatibility */
+// ASUS_BSP +++ Tingyi "[DDS] Interface to set x offset of framebuffer"	
+	//__u32 buffer_offset;
+	//__u32 asus_ystride;
+// ASUS_BSP --- Tingyi "[DDS] Interface to set x offset of framebuffer"	
 };
 
 struct fb_cmap {

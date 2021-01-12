@@ -66,6 +66,7 @@ struct pil_device {
 	struct delayed_work proxy;
 	struct wake_lock wlock;
 	char wake_name[32];
+	bool is_opened;
 };
 
 #define to_pil_device(d) container_of(d, struct pil_device, dev)
@@ -380,13 +381,14 @@ void *pil_get(const char *name)
 	}
 
 	mutex_lock(&pil->lock);
-	if (!pil->count) {
+	if (!pil->is_opened) {
 		ret = load_image(pil);
 		if (ret) {
 			retval = ERR_PTR(ret);
 			goto err_load;
 		}
 	}
+	pil->is_opened = true;
 	pil->count++;
 	pil_set_state(pil, PIL_ONLINE);
 	mutex_unlock(&pil->lock);
@@ -576,7 +578,7 @@ static void msm_pil_debugfs_remove(struct pil_device *pil)
 }
 #else
 static int __init msm_pil_debugfs_init(void) { return 0; };
-static void __exit msm_pil_debugfs_exit(void) { };
+static void __exit msm_pil_debugfs_exit(void) { return; };	//ASUS_BSP: fix for miniporting++
 static int msm_pil_debugfs_add(struct pil_device *pil) { return 0; }
 static void msm_pil_debugfs_remove(struct pil_device *pil) { }
 #endif
@@ -610,6 +612,7 @@ struct pil_device *msm_pil_register(struct pil_desc *desc)
 
 	mutex_init(&pil->lock);
 	pil->desc = desc;
+	pil->is_opened = false;
 	pil->owner = desc->owner;
 	pil->dev.parent = desc->dev;
 	pil->dev.bus = &pil_bus_type;

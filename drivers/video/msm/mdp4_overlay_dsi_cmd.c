@@ -31,6 +31,8 @@
 #include "mipi_dsi.h"
 #include "mdp4.h"
 
+static int dsi_state;
+
 static int vsync_start_y_adjust = 4;
 
 #define MAX_CONTROLLER	1
@@ -735,6 +737,20 @@ void mdp4_dsi_rdptr_init(int cndx)
 void mdp4_primary_rdptr(void)
 {
 	primary_rdptr_isr(0);
+}
+
+void mdp4_overlay_dsi_state_set(int state)
+{
+	unsigned long flag;
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	dsi_state = state;
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+}
+
+int mdp4_overlay_dsi_state_get(void)
+{
+	return dsi_state;
 }
 
 static __u32 msm_fb_line_length(__u32 fb_index, __u32 xres, int bpp)

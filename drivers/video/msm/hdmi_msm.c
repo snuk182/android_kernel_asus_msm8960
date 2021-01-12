@@ -31,6 +31,7 @@
 #include <mach/clk.h>
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
+#include <linux/i2c.h>//larry lai:use general i2c to config hdmi edid/hdcp
 
 #ifdef CONFIG_MHL
 #include <linux/mhl.h>
@@ -38,6 +39,20 @@
 
 #include "msm_fb.h"
 #include "hdmi_msm.h"
+//Larry Lai+++
+#include <linux/gpio.h>
+#include <linux/microp_api.h>
+
+#define CONFIG_MSM_HDMI_GSBI_ENABLE
+
+struct i2c_client *g_hdmi_edid_client;
+struct i2c_client *g_hdmi_hdcp_client;
+
+#define MSM_8960_GSBI10_HDMI_BUS_ID	10
+
+#define pr_hdebug(fmt, ...) \
+	printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
+//Larry Lai+++
 
 /* Supported HDMI Audio channels */
 #define MSM_HDMI_AUDIO_CHANNEL_2		0
@@ -69,24 +84,52 @@ static int msm_hdmi_sample_rate = MSM_HDMI_SAMPLE_RATE_48KHZ;
 #define HPD_EVENT_OFFLINE 0
 #define HPD_EVENT_ONLINE  1
 
+// ASUS_BSP +++ Ken Cheng "[A68/80][Audio] add for checking pad exist to set audio_sdev"
+#ifdef CONFIG_EEPROM_NUVOTON
 #define SWITCH_SET_HDMI_AUDIO(d, force) \
 	do {\
-		if (!hdmi_msm_is_dvi_mode() &&\
-			((force) ||\
-			 (external_common_state->audio_sdev.state != (d)))) {\
-			switch_set_state(&external_common_state->audio_sdev,\
-					(d));\
-			DEV_INFO("%s: hdmi_audio state switched to %d\n",\
-				__func__,\
+		if ( AX_MicroP_IsP01Connected() ) {\
+			if (d && \
+				((force) ||\
+				 (external_common_state->audio_sdev.state != 2))) {\
+				switch_set_state(&external_common_state->audio_sdev, 2);\
+				printk("%s: [Pad mode] hdmi_audio state switched to %d\n",\
+					 __func__,\
 				external_common_state->audio_sdev.state);\
+			} \
+		}\
+		else {\
+			if (!hdmi_msm_is_dvi_mode() &&\
+				((force) ||\
+				 (external_common_state->audio_sdev.state != (d)))) {\
+				switch_set_state(&external_common_state->audio_sdev,\
+						(d));\
+				printk("%s: [HDMI mode] hdmi_audio state switched to %d\n",\
+					__func__,\
+					external_common_state->audio_sdev.state);\
+			} \
 		} \
 	} while (0)
+#else
+#define SWITCH_SET_HDMI_AUDIO(d, force) \
+        do {\
+                if (!hdmi_msm_is_dvi_mode() &&\
+                        ((force) ||\
+                         (external_common_state->audio_sdev.state != (d)))) {\
+                        switch_set_state(&external_common_state->audio_sdev,\
+                                        (d));\
+                        DEV_INFO("%s: hdmi_audio state switched to %d\n",\
+                                __func__,\
+                                external_common_state->audio_sdev.state);\
+                } \
+        } while (0)
+#endif
 
 struct workqueue_struct *hdmi_work_queue;
 struct hdmi_msm_state_type *hdmi_msm_state;
 
 /* Enable HDCP by default */
-static bool hdcp_feature_on = true;
+static bool hdcp_feature_on = false;
 
 DEFINE_MUTEX(hdmi_msm_state_mutex);
 EXPORT_SYMBOL(hdmi_msm_state_mutex);
@@ -100,6 +143,98 @@ static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
 static void hdmi_msm_hpd_off(void);
 static boolean hdmi_msm_is_dvi_mode(void);
+
+//Mickey+++, added for debuging
+int g_hdmi_insert_count = 0;
+int g_pad_insert_count = 0;
+int g_hdmi_play_count = 0;
+int g_hdmi_remove_count = 0;
+int g_pad_remove_count =0;
+bool g_hdmi_isr = false;
+bool g_firs_hdmi = false;
+
+static bool write_hdmi_counter(void)
+{
+    char writestr[200];
+
+    sprintf(writestr, "hdmi insert = %d\n pad insert =%d\n hdmi play = %d\n hdmi remove =%d\n pad remove=%d\n",
+        g_hdmi_insert_count,
+        g_pad_insert_count,
+        g_hdmi_play_count,
+        g_hdmi_remove_count,
+        g_pad_remove_count);
+
+    printk("[HDMI] %s\n",writestr);
+    return true;
+}
+//Mickey---
+
+//Mickey+++
+extern void asus_fb0_screen_suspend(bool suspend);
+bool g_fb0_off = false;
+bool g_p01State = false;
+bool g_disableMicroPNotify = false;
+//Mickey---
+//Mickey+++ add for mp notification
+bool g_pad_virtual_remove = false;
+extern bool hdmi_exist_realtime(void);
+#ifdef CONFIG_EEPROM_NUVOTON
+//Mickey+++
+extern void notify_microp_hdmi_insert(void);
+extern void notify_microp_hdmi_remove(int virtual);
+//Mickey---
+#include <linux/microp_notify.h>
+static struct work_struct g_pad_virtual_remove_work;
+static struct workqueue_struct *g_hdmi_virtual_remove;
+
+static void pad_virtual_remove_work(struct work_struct *work)
+{
+    DEV_INFO("HDMI pad_virtual_remove_work: sense DISCONNECTED: send OFFLINE\n");
+    g_pad_virtual_remove = true;
+    notify_microp_hdmi_remove(1);
+    if (g_fb0_off)
+    {
+        asus_fb0_screen_suspend(false);
+        g_fb0_off = false;
+    }
+    g_disableMicroPNotify = false;
+    g_p01State = false;
+    hdmi_msm_state->pd->ddc_switch(false,false); 
+    kobject_uevent(external_common_state->uevent_kobj,KOBJ_OFFLINE);
+    switch_set_state(&external_common_state->sdev, 0);
+    if (hdmi_exist_realtime())//make sure hdmi exist
+        g_pad_virtual_remove = true;
+    else
+        g_pad_virtual_remove = false;
+}
+
+int pad_virtual_remove(void)
+{
+    queue_work(g_hdmi_virtual_remove, &g_pad_virtual_remove_work);
+    return 0;
+}
+
+static int hdmi_mp_event(struct notifier_block *this, unsigned long event, void *ptr)
+{
+        switch (event) {
+        case P01_BATTERY_POWER_BAD:
+            printk("[HDMI][MP] P01_BATTERY_POWER_BAD\r\n");
+        case P01_DEAD:
+            printk("[HDMI][MP] Pad Virtual Remove++\r\n");
+            pad_virtual_remove();
+            printk("[HDMI][MP] Pad Virtual Remove--\r\n");
+            return NOTIFY_DONE;
+        default:
+            return NOTIFY_DONE;
+        }
+
+}
+static struct notifier_block hdmi_mp_notifier = {
+        .notifier_call = hdmi_mp_event,
+        .priority = LCD_MP_NOTIFY,
+};
+#endif
+//Mickey---
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
 
@@ -628,7 +763,7 @@ void hdmi_msm_cec_one_touch_play(void)
 
 }
 #endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT */
-
+extern bool g_ddcEnable; //Mickey, add for hdmi ddc switch
 uint32 hdmi_msm_get_io_base(void)
 {
 	return (uint32)MSM_HDMI_BASE;
@@ -772,6 +907,27 @@ static int hdmi_msm_audio_off(void);
 static int hdmi_msm_read_edid(void);
 static void hdmi_msm_hpd_off(void);
 
+//joe1_++
+// Support ATD hdmi test
+static int g_hdmi_status = 0; //g_hdmi_status=1:connected ; 0:disconnected 
+
+static ssize_t read_hdmi_status(struct device *dev, struct device_attribute *devattr, char *buf)
+{
+	return sprintf(buf, "%d\n", g_hdmi_status);
+}
+
+DEVICE_ATTR(hdmi_status, S_IRUGO, read_hdmi_status, NULL);
+
+static struct attribute *hdmi_attr[] = {
+	&dev_attr_hdmi_status.attr,
+	NULL
+};
+
+struct attribute_group g_hdmi_attrs;
+//joe1_--
+extern bool hdmi_exist(void);//Mickey+++
+extern bool g_skipHPD;//Mickey+++
+
 static bool hdmi_ready(void)
 {
 	return MSM_HDMI_BASE &&
@@ -783,7 +939,6 @@ static bool hdmi_ready(void)
 static void hdmi_msm_send_event(boolean on)
 {
 	char *envp[2];
-
 	/* QDSP OFF preceding the HPD event notification */
 	envp[0] = "HDCP_STATE=FAIL";
 	envp[1] = NULL;
@@ -791,15 +946,48 @@ static void hdmi_msm_send_event(boolean on)
 	kobject_uevent_env(external_common_state->uevent_kobj,
 			   KOBJ_CHANGE, envp);
 
-	if (on) {
+	if (on && hdmi_exist_realtime()) { //Mickey+++, double check if hdmi exist by reading interrupt pin status
+		if (!g_pad_virtual_remove)
+                    hdmi_msm_state->pd->ddc_switch(false,true);//Mickey, turn on GSBI level shifter
+                else
+                    hdmi_msm_state->pd->ddc_switch(true,true);//Mickey, turn on DDC level shifter
 		/* Build EDID table */
 		hdmi_msm_read_edid();
-		switch_set_state(&external_common_state->sdev, 1);
-		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
-				external_common_state->sdev.state);
+#ifdef CONFIG_EEPROM_NUVOTON
+            if (g_p01State)
+            {
+                if (!g_disableMicroPNotify)
+                {
+                    notify_microp_hdmi_insert();//Mickey+++
+                    g_disableMicroPNotify = true;
+                    asus_fb0_screen_suspend(true);
+                    g_fb0_off = true;
+                }
+                if (g_hdmi_isr)
+                    g_pad_insert_count++;
+                envp[0] = "PAD_STATE=P03_LR_ONLINE";
+            }
+            else
+                envp[0] = "PAD_STATE=OFFLINE";
+                envp[1] = NULL;
+#endif
+            g_hdmi_status = 1;//joe1_++
+            g_pad_virtual_remove = false;//Mickey+++
+//		switch_set_state(&external_common_state->sdev, 1);
 
 		DEV_INFO("HDMI HPD: CONNECTED: send ONLINE\n");
-		kobject_uevent(external_common_state->uevent_kobj, KOBJ_ONLINE);
+
+            if (g_hdmi_isr)
+            {
+                g_hdmi_insert_count++;
+                g_hdmi_isr = false;
+            }
+            g_firs_hdmi = true;
+			kobject_uevent_env(external_common_state->uevent_kobj,
+				KOBJ_ONLINE,envp);
+//		kobject_uevent(external_common_state->uevent_kobj, KOBJ_ONLINE);
+		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
+				external_common_state->sdev.state);
 		if (!hdmi_msm_state->hdcp_enable) {
 			/* Send Audio for HDMI Compliance Cases*/
 			envp[0] = "HDCP_STATE=PASS";
@@ -809,12 +997,40 @@ static void hdmi_msm_send_event(boolean on)
 				KOBJ_CHANGE, envp);
 		}
 	} else {
-		switch_set_state(&external_common_state->sdev, 0);
-		DEV_INFO("%s: hdmi state switch to %d\n", __func__,
-				external_common_state->sdev.state);
+            //Mickey+++
+            if (!g_pad_virtual_remove)
+            {
+                if (g_p01State)
+                {
+#ifdef CONFIG_EEPROM_NUVOTON
+                    notify_microp_hdmi_remove(0);//Mickey+++
+#endif
+                    g_disableMicroPNotify = false;
+                    g_p01State = false;
+                    g_pad_remove_count++;
+                }
+                hdmi_msm_state->pd->ddc_switch(false,false); //Mickey, turn off level shifter when hdmi unplugged
+                if (g_fb0_off)
+                {
+                    asus_fb0_screen_suspend(false);
+                    g_fb0_off = false;
+                }
+                if (g_hdmi_isr)
+                {
+                    g_hdmi_remove_count++;
+                    g_hdmi_isr = false;
+                }
+
 		DEV_INFO("hdmi: HDMI HPD: sense DISCONNECTED: send OFFLINE\n");
 		kobject_uevent(external_common_state->uevent_kobj,
 			KOBJ_OFFLINE);
+		switch_set_state(&external_common_state->sdev, 0);
+		DEV_INFO("%s: hdmi state switch to %d\n", __func__,
+				external_common_state->sdev.state);
+
+            }
+            g_hdmi_status = 0;//joe1_++
+            //Mickey---
 	}
 }
 
@@ -826,6 +1042,7 @@ static void hdmi_msm_hpd_state_work(struct work_struct *work)
 	}
 
 	hdmi_msm_send_event(external_common_state->hpd_state);
+    write_hdmi_counter();
 }
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL_CEC_SUPPORT
@@ -900,6 +1117,7 @@ int hdmi_msm_process_hdcp_interrupts(void)
 	uint32 hdcp_int_val;
 	char *envp[2];
 
+    hdmi_exist_realtime();//Mickey+++, update hdmi status
 	if (!hdmi_msm_state->hdcp_enable) {
 		DEV_DBG("%s: HDCP not enabled\n", __func__);
 		return -EINVAL;
@@ -1009,7 +1227,7 @@ static irqreturn_t hdmi_msm_isr(int irq, void *dev_id)
 	static uint32 fifo_urun_int_occurred;
 	static uint32 sample_drop_int_occurred;
 	const uint32 occurrence_limit = 5;
-
+	hdmi_exist_realtime();//Mickey+++, update hdmi status
 	if (!hdmi_ready()) {
 		DEV_DBG("ISR ignored, probe failed\n");
 		return IRQ_HANDLED;
@@ -1042,13 +1260,17 @@ static irqreturn_t hdmi_msm_isr(int irq, void *dev_id)
 			HDMI_OUTP(0x0254,
 					((hpd_int_ctrl | BIT(0)) & ~BIT(2)));
 		}
+
 		external_common_state->hpd_state =
 			(HDMI_INP(0x0250) & BIT(1)) >> 1;
 		DEV_DBG("%s: Queuing work to handle HPD %s event\n", __func__,
 				external_common_state->hpd_state ? "connect" :
 				"disconnect");
 		queue_work(hdmi_work_queue, &hdmi_msm_state->hpd_state_work);
+		//queue_delayed_work(hdmi_work_queue, &hdmi_msm_state->hpd_state_work, 20);
 		return IRQ_HANDLED;
+	}else{
+		printk("MDP:HDMI:IRQ %s: skip queue work int_status=0x%x int_ctrl=0x%x\n",__func__,hpd_int_status,hpd_int_ctrl);
 	}
 
 	/* Process DDC Interrupts */
@@ -1228,8 +1450,9 @@ static int check_hdmi_features(void)
 
 static boolean hdmi_msm_has_hdcp(void)
 {
+    return FALSE;//Mickey, we disable hdcp temporary
 	/* RAW_FEAT_CONFIG_ROW0_LSB, HDCP_DISABLE */
-	return (inpdw(QFPROM_BASE + 0x0238) & 0x00400000) ? FALSE : TRUE;
+	//return (inpdw(QFPROM_BASE + 0x0238) & 0x00400000) ? FALSE : TRUE;
 }
 
 static boolean hdmi_msm_is_power_on(void)
@@ -1347,6 +1570,45 @@ static int hdmi_msm_ddc_clear_irq(const char *what)
 
 	return 0;
 }
+
+//Larry Lai+++
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+//Mickey, modify for hdmi ddc switch
+static int asus_hdmi_msm_gsbi_write(uint32 dev_addr, uint32 offset,
+	const uint8 *data_buf, uint32 data_len, const char *what)	
+{
+	struct i2c_client *client;
+	unsigned char buf[data_len + 1];
+	int ret;
+
+	pr_hdebug("hdmi_msm_ddc_write ++ (%s)\n", what);
+
+
+	if (dev_addr == 0xA0)
+		client = g_hdmi_edid_client;
+	if (dev_addr == 0x74)
+		client = g_hdmi_hdcp_client;
+	else
+	{
+		client = g_hdmi_edid_client;
+		printk("hdmi_msm_gsbi_write : default use edid i2c client\n");
+	}
+
+	buf[0] = (unsigned char)offset;
+	memcpy(&buf[1], data_buf, data_len);
+	
+	ret = i2c_master_send(client, buf, data_len + 1);
+	if (ret < 0)
+		return ret;
+
+	pr_hdebug("hdmi_msm_gsbi_write success --(%s)\n", what);
+	
+	return 0;
+
+	
+}
+
+//#else //Mickey, modify for hdmi ddc switch
 
 static int hdmi_msm_ddc_write(uint32 dev_addr, uint32 offset,
 	const uint8 *data_buf, uint32 data_len, const char *what)
@@ -1543,7 +1805,57 @@ again:
 error:
 	return status;
 }
+#endif /* CONFIG_MSM_HDMI_GSBI_ENABLE */
+//Larry Lai---
 
+//Larry Lai+++
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+//Mickey, modify for hdmi ddc switch
+static int asus_hdmi_msm_gsbi_read_retry(uint32 dev_addr, uint32 offset,
+	uint8 *data_buf, uint32 data_len, uint32 request_len, int retry,
+	const char *what)
+{
+	struct i2c_msg msg[2];
+	struct i2c_client *client;
+	unsigned char data;
+	int ret;
+
+	pr_hdebug("hdmi_msm_ddc_read_retry ++ (%s)\n", what);
+
+	if (dev_addr == 0xA0)
+		client = g_hdmi_edid_client;
+	else if (dev_addr == 0x74)
+		client = g_hdmi_hdcp_client;
+	else
+	{
+		client = g_hdmi_edid_client;
+		printk("hdmi_msm_gsbi_read : default use edid i2c client\n");
+	}
+
+	data = (unsigned char)offset;
+
+	msg[0].addr = client->addr;
+	msg[0].flags = 0;
+	msg[0].len = 1;
+	msg[0].buf = &data;
+
+	msg[1].addr = client->addr;
+	msg[1].flags = I2C_M_RD;
+	msg[1].len = data_len;
+	msg[1].buf = data_buf;
+
+	ret = i2c_transfer(client->adapter, msg, 2);
+
+	if (ret < 0) {
+		DEV_INFO("%s: I2C err: %d\n", __func__, ret);
+		return ret;
+	}
+	
+	pr_hdebug("##hdmi_msm_gsbi_read read success --(%s)\n", what);	
+	return 0;		
+	
+}
+//#else //Mickey, modify for hdmi ddc switch
 static int hdmi_msm_ddc_read_retry(uint32 dev_addr, uint32 offset,
 	uint8 *data_buf, uint32 data_len, uint32 request_len, int retry,
 	const char *what)
@@ -1771,6 +2083,8 @@ again:
 error:
 	return status;
 }
+#endif
+//Larry Lai---
 
 static int hdmi_msm_ddc_read_edid_seg(uint32 dev_addr, uint32 offset,
 	uint8 *data_buf, uint32 data_len, uint32 request_len, int retry,
@@ -2038,17 +2352,33 @@ error:
 static int hdmi_msm_ddc_read(uint32 dev_addr, uint32 offset, uint8 *data_buf,
 	uint32 data_len, int retry, const char *what, boolean no_align)
 {
-	int ret = hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf, data_len,
-		data_len, retry, what);
+//Mickey+++, modify for hdmi ddc switch
+    int ret;
+    if (g_ddcEnable)
+	    ret = hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf, data_len,
+		    data_len, retry, what);
+    else
+        ret = asus_hdmi_msm_gsbi_read_retry(dev_addr, offset, data_buf, data_len,
+            data_len, retry, what);
+
 	if (!ret)
 		return 0;
 	if (no_align) {
-		return hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf,
-			data_len, data_len, retry, what);
+        if (g_ddcEnable)
+		    return hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf,
+			    data_len, data_len, retry, what);
+        else
+            return asus_hdmi_msm_gsbi_read_retry(dev_addr, offset, data_buf,
+                data_len, data_len, retry, what);
 	} else {
-		return hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf,
-			data_len, 32 * ((data_len + 31) / 32), retry, what);
+         if (g_ddcEnable)
+		    return hdmi_msm_ddc_read_retry(dev_addr, offset, data_buf,
+			    data_len, 32 * ((data_len + 31) / 32), retry, what);
+        else
+            return asus_hdmi_msm_gsbi_read_retry(dev_addr, offset, data_buf,
+                data_len, 32 * ((data_len + 31) / 32), retry, what);
 	}
+//Mickey---
 }
 
 
@@ -2080,12 +2410,26 @@ static int hdmi_msm_read_edid_block(int block, uint8 *edid_buf)
 
 	return rc;
 }
-
+//Mickey+++ 
+#ifdef CONFIG_EEPROM_NUVOTON
+extern int isMicroPConnected(void);
+extern void reportPadStationI2CFail(char *devname);
+#endif
+//Mickey---
 static int hdmi_msm_read_edid(void)
 {
-	int status;
-
-	msm_hdmi_init_ddc();
+	int status = 0;
+    //Mickey+++
+#ifdef CONFIG_EEPROM_NUVOTON
+    if (!g_pad_virtual_remove)
+        g_p01State = isMicroPConnected();
+#endif
+    if (!g_p01State)
+    {
+        hdmi_msm_state->pd->ddc_switch(true,true);  //Mickey,switch to ddc
+	    msm_hdmi_init_ddc();
+    }
+    //Mickey---
 	/* Looks like we need to turn on HDMI engine before any
 	 * DDC transaction */
 	if (!hdmi_msm_is_power_on()) {
@@ -2102,7 +2446,13 @@ static int hdmi_msm_read_edid(void)
 	status = hdmi_common_read_edid();
 	if (!status)
 		DEV_DBG("EDID: successfully read\n");
-
+//Mickey+++
+#ifdef CONFIG_EEPROM_NUVOTON
+    else
+        if (!g_pad_virtual_remove)
+            reportPadStationI2CFail("HDMI EDID");
+#endif
+//Mickey---
 error:
 	return status;
 }
@@ -2331,7 +2681,7 @@ static int hdcp_authentication_part1(void)
 	bool stale_an = false;
 	boolean is_part1_done = FALSE;
 	uint32 timeout_count;
-	uint8 bcaps;
+	uint8 bcaps = 0x0;
 	uint8 aksv[5];
 	uint32 qfprom_aksv_0, qfprom_aksv_1, link0_aksv_0, link0_aksv_1;
 	uint8 bksv[5];
@@ -2555,16 +2905,23 @@ static int hdcp_authentication_part1(void)
 		an[5] = (link0_an_1 >> 8)  & 0xFF;
 		an[6] = (link0_an_1 >> 16) & 0xFF;
 		an[7] = (link0_an_1 >> 24) & 0xFF;
-
+//Mickey+++, modify for hdmi ddc switch
 		/* Write An 8 bytes to offset 0x18 */
-		ret = hdmi_msm_ddc_write(0x74, 0x18, an, 8, "An");
+        if (g_ddcEnable)
+		    ret = hdmi_msm_ddc_write(0x74, 0x18, an, 8, "An");
+        else
+            ret = asus_hdmi_msm_gsbi_write(0x74, 0x18, an, 8, "An");
 		if (ret) {
 			DEV_ERR("%s(%d): Write An failed", __func__, __LINE__);
 			goto error;
 		}
 
 		/* Write Aksv 5 bytes to offset 0x10 */
-		ret = hdmi_msm_ddc_write(0x74, 0x10, aksv, 5, "Aksv");
+        if (g_ddcEnable)
+		    ret = hdmi_msm_ddc_write(0x74, 0x10, aksv, 5, "Aksv");
+        else
+            ret = asus_hdmi_msm_gsbi_write(0x74, 0x10, aksv, 5, "Aksv");
+//Mickey---
 		if (ret) {
 			DEV_ERR("%s(%d): Write Aksv failed", __func__,
 			    __LINE__);
@@ -2765,7 +3122,7 @@ static int hdcp_authentication_part2(void)
 	int i = 0;
 	int cnt = 0;
 	uint bstatus;
-	uint8 bcaps;
+	uint8 bcaps = 0x0;
 	uint32 down_stream_devices;
 	uint32 ksv_bytes;
 
@@ -3006,7 +3363,7 @@ error:
 static void hdmi_msm_hdcp_enable(void)
 {
 	int ret = 0;
-	uint8 bcaps;
+	uint8 bcaps = 0x0;
 	uint32 found_repeater = 0x0;
 	char *envp[2];
 
@@ -3018,6 +3375,8 @@ static void hdmi_msm_hdcp_enable(void)
 	mutex_lock(&hdmi_msm_state_mutex);
 	hdmi_msm_state->hdcp_activating = TRUE;
 	mutex_unlock(&hdmi_msm_state_mutex);
+
+	//fill_black_screen(1);
 
 	mutex_lock(&hdcp_auth_state_mutex);
 	/* This flag prevents other threads from re-authenticating
@@ -3057,6 +3416,8 @@ static void hdmi_msm_hdcp_enable(void)
 	ret = hdcp_authentication_part3(found_repeater);
 	if (ret)
 		goto error;
+
+	//fill_black_screen(0);
 
 	mutex_lock(&hdmi_msm_state_mutex);
 	hdmi_msm_state->hdcp_activating = FALSE;
@@ -3785,6 +4146,11 @@ static void hdmi_msm_avi_info_frame(void)
 	case HDMI_VFRMT_1280x1024p60_5_4:
 		mode = 16;
 		break;
+    //Mickey+++
+    case HDMI_VFRMT_1280x800p60_16_10:
+        mode = 4;
+        break;
+    //Mickey---
 	default:
 		DEV_INFO("%s: mode %d not supported\n", __func__,
 			external_common_state->video_resolution);
@@ -4283,9 +4649,12 @@ static void hdmi_msm_hpd_polarity_setup(void)
 	}
 }
 
+int g_hdp_feature = 1; //Mickey+++
+int g_hdp_feature_changed = 0; //Mickey+++
 static void hdmi_msm_hpd_off(void)
 {
 	int rc = 0;
+	printk("MDP:HDMI:%s:+++\n",__func__);
 
 	if (!hdmi_msm_state->hpd_initialized) {
 		DEV_DBG("%s: HPD is already OFF, returning\n", __func__);
@@ -4300,7 +4669,14 @@ static void hdmi_msm_hpd_off(void)
 	DEV_DBG("%s: Disabling HPD_CTRLd\n", __func__);
 
 	hdmi_msm_set_mode(FALSE);
-	hdmi_msm_state->pd->enable_5v(0);
+    //Mickey+++, turn off 5V here only when hdp feature off
+    if (g_hdp_feature_changed)
+    {
+	    hdmi_msm_state->pd->enable_5v(0);
+        g_hdp_feature_changed = false;
+    }
+    //Mickey---
+	hdmi_msm_state->pd->core_power(0, 1);
 	hdmi_msm_clk(0);
 	rc = hdmi_msm_state->pd->gpio_config(0);
 	if (rc != 0)
@@ -4322,6 +4698,7 @@ static int hdmi_msm_hpd_on(void)
 	static int phy_reset_done;
 	uint32 hpd_ctrl;
 	int rc = 0;
+	printk("MDP:HDMI:%s:+++\n",__func__);
 
 	if (hdmi_msm_state->hpd_initialized) {
 		DEV_DBG("%s: HPD is already ON\n", __func__);
@@ -4339,13 +4716,19 @@ static int hdmi_msm_hpd_on(void)
 					__func__, rc);
 			goto error2;
 		}
-
-		rc = hdmi_msm_state->pd->enable_5v(1);
-		if (rc) {
-			DEV_ERR("%s: Failed to enable 5V regulator. Error=%d\n",
-					__func__, rc);
-			goto error3;
-		}
+		hdmi_msm_state->pd->core_power(1, 1);
+	   //Mickey+++, turn on 5V here only when hdp feature off
+	    if (g_hdp_feature_changed)
+	    {
+			rc = hdmi_msm_state->pd->enable_5v(1);
+			if (rc) {
+				DEV_ERR("%s: Failed to enable 5V regulator. Error=%d\n",
+						__func__, rc);
+				goto error3;
+			}
+			g_hdp_feature_changed = false;
+	    }
+    //Mickey---
 		hdmi_msm_dump_regs("HDMI-INIT: ");
 
 		hdmi_msm_set_mode(FALSE);
@@ -4390,9 +4773,10 @@ error1:
 	return rc;
 }
 
-static int hdmi_msm_power_ctrl(boolean enable)
+int hdmi_msm_power_ctrl(boolean enable)
 {
 	int rc = 0;
+	printk("MDP:HDMI:%s:+++:enable = %d\n",__func__,enable);
 
 	if (enable) {
 		/*
@@ -4631,6 +5015,8 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 	struct platform_device *fb_dev;
 	struct msm_fb_data_type *mfd = NULL;
 
+	int sysfs_res;//joe1_++
+
 	if (!hdmi_msm_state) {
 		pr_err("%s: hdmi_msm_state is NULL\n", __func__);
 		return -ENOMEM;
@@ -4717,11 +5103,15 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 		goto error;
 	}
 
+//ASUS_BSP joe1_++
+#if 0
 	if (!hdmi_msm_state->pd->cec_power) {
 		DEV_ERR("Init FAILED: cec_power function missing\n");
 		rc = -ENODEV;
 		goto error;
 	}
+#endif
+//ASUS_BSP joe1_--
 
 	rc = request_threaded_irq(hdmi_msm_state->irq, NULL, &hdmi_msm_isr,
 		IRQF_TRIGGER_HIGH | IRQF_ONESHOT, "hdmi_msm_isr", NULL);
@@ -4781,7 +5171,16 @@ static int __devinit hdmi_msm_probe(struct platform_device *pdev)
 		rc = -ENODEV;
 		goto error;
 	}
+//joe1_++
+	g_hdmi_attrs.attrs = hdmi_attr;
 
+	sysfs_res = sysfs_create_group(&pdev->dev.kobj, &g_hdmi_attrs);
+	if (sysfs_res) {
+		dev_err(&pdev->dev, "HDMI: Not able to create the sysfs\n");
+		printk("%s:Not able to create the sysfs\n", __FUNCTION__);
+	}
+//joe1_--
+	
 	return 0;
 
 error:
@@ -4846,15 +5245,23 @@ static int __devexit hdmi_msm_remove(struct platform_device *pdev)
 	kfree(hdmi_msm_state);
 	hdmi_msm_state = NULL;
 
+	sysfs_remove_group(&pdev->dev.kobj, &g_hdmi_attrs); //joe1_++
+
 	return 0;
 }
 
+#ifdef CONFIG_HDMI_HPD_ENABLED
 static int hdmi_msm_hpd_feature(int on)
 {
 	int rc = 0;
 
 	DEV_INFO("%s: %d\n", __func__, on);
+    //Mickey+++, keep the hdp status
+    g_hdp_feature_changed = 1;
+    g_hdp_feature = on;
+    //Mickey--
 	if (on) {
+        hdmi_msm_state->hpd_initialized = false;//Mickey force to redetect HPD status
 		rc = hdmi_msm_hpd_on();
 #ifdef CONFIG_MHL
 		/* MHL full operation start */
@@ -4893,6 +5300,90 @@ static int hdmi_msm_hpd_feature(int on)
 
 	return rc;
 }
+#else
+static int hdmi_msm_hpd_feature(int on)
+{
+	int rc = 0;
+
+	DEV_INFO("%s: %d\n", __func__, on);
+	if (on) {
+		rc = hdmi_msm_hpd_on();
+		/*
+		 * If spash is enabled, HPD interrupt not received,
+		 * send uevent directly
+		 */
+//		if (hdmi_msm_state->is_splash_enabled)
+//			hdmi_msm_send_event(HPD_EVENT_ONLINE);
+	} else {
+		if (external_common_state->hpd_state) {
+			/* Send offline event to switch OFF HDMI and HAL FD */
+			hdmi_msm_send_event(HPD_EVENT_OFFLINE);
+
+			/* Wait for HDMI and FD to close */
+			INIT_COMPLETION(hdmi_msm_state->hpd_event_processed);
+			wait_for_completion_interruptible_timeout(
+				&hdmi_msm_state->hpd_event_processed, HZ);
+
+			external_common_state->hpd_state = 0;
+		}
+
+		hdmi_msm_hpd_off();
+
+		/* Set HDMI switch node to 0 on HPD feature disable */
+		switch_set_state(&external_common_state->sdev, 0);
+		DEV_INFO("%s: hdmi state switched to %d\n", __func__,
+				external_common_state->sdev.state);
+	}
+
+	return rc;
+}
+#endif
+//Larry Lai+++
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+static struct i2c_board_info hdmi_i2c_info[] = {
+	{
+		I2C_BOARD_INFO("hdmi_edid", 0x50),
+	},
+	{
+		I2C_BOARD_INFO("hdmi_hdcp", 0x3a),
+	},	
+};
+
+static struct i2c_client *hdmi_msm_i2c_register_board(int hdmi_id)
+{
+	struct i2c_adapter *i2c_adap;
+	struct i2c_client *client = NULL;
+
+	if (hdmi_id > 1)
+		goto free_hdmi_i2c; 
+	
+	i2c_adap = i2c_get_adapter(MSM_8960_GSBI10_HDMI_BUS_ID);
+
+	if (!i2c_adap)
+	{
+		pr_hdebug("can't get adapter for bus %d\n", MSM_8960_GSBI10_HDMI_BUS_ID);
+		goto free_hdmi_i2c;
+	}	
+
+	client = i2c_new_device(i2c_adap,	&hdmi_i2c_info[hdmi_id]);
+
+	i2c_put_adapter(i2c_adap);
+	
+	if (!client) {
+		pr_hdebug("can't add i2c device at 0x%x\n",
+			(unsigned int)hdmi_i2c_info[hdmi_id].addr);		
+		goto free_hdmi_i2c;
+	}
+
+	return client;
+
+free_hdmi_i2c:	
+
+	return NULL;
+
+}
+#endif
+//Larry Lai---
 
 static struct platform_driver this_driver = {
 	.probe = hdmi_msm_probe,
@@ -4916,12 +5407,65 @@ static int __init hdmi_msm_init(void)
 {
 	int rc;
 
+//Larry Lai+++
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+
+	static struct i2c_client *edid_i2c_client;
+	static struct i2c_client *hdcp_i2c_client;
+#endif
+
 	if (msm_fb_detect_client("hdmi_msm"))
 		return 0;
 
 #ifdef CONFIG_FB_MSM_HDMI_AS_PRIMARY
 	hdmi_prim_display = 1;
 #endif
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+	pr_hdebug("hdmi_msm_init++\n");
+
+
+	if (!g_hdmi_edid_client)
+	{
+		edid_i2c_client = hdmi_msm_i2c_register_board(0);
+		if (edid_i2c_client)
+		{
+			g_hdmi_edid_client = edid_i2c_client;
+			pr_hdebug("[edid] hdmi_i2c_client register 0x%x, 0x%d\n", edid_i2c_client->addr, edid_i2c_client->adapter->nr);		
+		}
+		else
+		{
+			pr_hdebug("## [edid] hdmi_i2c_client register Fail ##\n");
+			rc = -EINVAL;			
+			goto init_exit;			
+		}
+	}
+	else
+	{
+		pr_hdebug("### [edid] hdmi_msm_i2c_register_board already register ####\n");
+	}	
+
+	if (!g_hdmi_hdcp_client)
+	{
+		hdcp_i2c_client = hdmi_msm_i2c_register_board(1);
+		if (hdcp_i2c_client)
+		{
+			g_hdmi_hdcp_client = hdcp_i2c_client;
+			pr_hdebug("[hdcp] hdmi_i2c_client register 0x%x, 0x%d\n", hdcp_i2c_client->addr, hdcp_i2c_client->adapter->nr);		
+		}
+		else
+		{
+			pr_hdebug("## [hdcp] hdmi_i2c_client register Fail ##\n");	
+			rc = -EINVAL;						
+			goto init_exit;			
+		}
+	}
+	else
+	{
+		pr_hdebug("### [hdcp] hdmi_msm_i2c_register_board already register ####\n");
+	}		
+
+#endif
+//Larry Lai---
 
 	hdmi_msm_setup_video_mode_lut();
 	hdmi_msm_state = kzalloc(sizeof(*hdmi_msm_state), GFP_KERNEL);
@@ -4996,6 +5540,17 @@ static int __init hdmi_msm_init(void)
 		platform_driver_unregister(&this_driver);
 		goto init_exit;
 	}
+//Mickey+++ add for mp notification
+#ifdef CONFIG_EEPROM_NUVOTON
+    g_hdmi_virtual_remove = create_singlethread_workqueue("g_hdmi_virtual_remove");
+    if (!g_hdmi_virtual_remove) {
+        printk("[HDMI] %s: create workqueue failed: g_hdmi_virtual_remove\n", __func__);
+    }
+    INIT_WORK(&g_pad_virtual_remove_work, pad_virtual_remove_work);
+    register_microp_notifier(&hdmi_mp_notifier);
+#endif
+//Mickey---
+
 
 	pr_debug("%s: success:"
 #ifdef DEBUG
@@ -5021,6 +5576,18 @@ init_exit:
 
 static void __exit hdmi_msm_exit(void)
 {
+//Larry Lai+++
+#ifdef CONFIG_MSM_HDMI_GSBI_ENABLE
+	i2c_release_client(g_hdmi_edid_client);
+	i2c_release_client(g_hdmi_hdcp_client);	
+#endif	
+//Larry Lai---
+//Mickey+++ add for mp notification
+#ifdef CONFIG_EEPROM_NUVOTON
+    destroy_workqueue(g_hdmi_virtual_remove);
+    unregister_microp_notifier(&hdmi_mp_notifier);
+#endif //CONFIG_EEPROM_NUVOTON
+//Mickey---
 	platform_device_unregister(&this_device);
 	platform_driver_unregister(&this_driver);
 }

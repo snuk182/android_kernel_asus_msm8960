@@ -18,6 +18,7 @@
 #include <linux/i2c/sx150x.h>
 #include <linux/i2c/isl9519.h>
 #include <linux/gpio.h>
+#include <linux/gpio_keys.h>
 #include <linux/msm_ssbi.h>
 #include <linux/regulator/msm-gpio-regulator.h>
 #include <linux/mfd/pm8xxx/pm8921.h>
@@ -26,16 +27,18 @@
 #include <linux/spi/spi.h>
 #include <linux/slimbus/slimbus.h>
 #include <linux/bootmem.h>
-#include <linux/cyttsp-qc.h>
+//#include <linux/cyttsp-qc.h>		//ASUS_BSP simpson: touch full porting++
 #include <linux/dma-contiguous.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_data/qcom_crypto_device.h>
 #include <linux/platform_data/qcom_wcnss_device.h>
 #include <linux/leds.h>
 #include <linux/leds-pm8xxx.h>
-#include <linux/i2c/atmel_mxt_ts.h>
+//#include <linux/i2c/atmel_mxt_ts.h> //ASUS_BSP simpson: touch full porting++
 #include <linux/msm_tsens.h>
 #include <linux/ks8851.h>
+#include <linux/atmel_maxtouch.h> //ASUS_BSP simpson: touch full porting++
+#include <linux/cm3623.h> //add cm3623 support
 #include <linux/i2c/isa1200.h>
 #include <linux/memory.h>
 #include <linux/memblock.h>
@@ -74,6 +77,27 @@
 #include <linux/mfd/wcd9xxx/pdata.h>
 #endif
 
+#define MSM_8960_GSBI12_QUP_I2C_BUS_ID 12
+
+//ASUS_BSP +++ Jason Chang "9-axis sensor porting"
+#ifdef CONFIG_MPU_SENSORS_MPU3050
+#include <linux/mpu.h>
+
+#define ECOM_GPIO_IRQ_AMI306 70
+#define GYRO_GPIO_IRQ_MPU3050 69
+#define GSEN_GPIO_IRQ_KXTF9 67
+#define A66_ECOM_GPIO_IRQ_AMI306 94
+#define A66_GYRO_GPIO_IRQ_MPU3050 96
+#define A66_GSEN_GPIO_IRQ_KXTF9 92
+#define A66_GSEN_GPIO_IRQ_KXTF9_ER2 93
+
+static struct regulator *pm8921_l9;
+static struct regulator *pm8921_lvs4;
+
+static int sensor_platform_init(void);
+#endif
+//ASUS_BSP --- Jason Chang "9-axis sensor porting"
+
 #include <linux/smsc3503.h>
 #include <linux/msm_ion.h>
 #include <mach/ion.h>
@@ -85,6 +109,7 @@
 #include <mach/iommu_domains.h>
 
 #include <mach/kgsl.h>
+#include <linux/memblock.h>//ASUS_BSP simpson: miniporting+++
 
 #include "timer.h"
 #include "devices.h"
@@ -96,6 +121,7 @@
 #include "rpm_resources.h"
 #include <mach/mpm.h>
 #include "clock.h"
+#include <linux/a60k_gpio_pinname.h>	// +++ ASUS_BSP : miniporting
 #include "smd_private.h"
 #include "pm-boot.h"
 #include "msm_watchdog.h"
@@ -105,6 +131,9 @@
 #include <linux/mutex.h>
 #endif
 
+//ASUS_BSP Sina_Chou ++
+#include <linux/microp.h>
+//ASUS_BSP Sina_Chou --
 static struct platform_device msm_fm_platform_init = {
 	.name = "iris_fm",
 	.id   = -1,
@@ -687,6 +716,16 @@ static void __init msm8960_early_memory(void)
 	reserve_info = &msm8960_reserve_info;
 }
 
+// jack for debug message
+static void __init reserve_printk_buffer(void)
+{
+    //reserve 1MB for debug message buffer
+    printk("reserve_printk_buffer memblock_reserve PRINTK_BUFFER %x\n", PRINTK_BUFFER);
+    memblock_reserve(PRINTK_BUFFER, PRINTK_BUFFER_SIZE);   
+    memblock_free(PRINTK_BUFFER, PRINTK_BUFFER_SIZE);
+    memblock_remove(PRINTK_BUFFER, PRINTK_BUFFER_SIZE);
+}
+
 static char prim_panel_name[PANEL_NAME_MAX_LEN];
 static char ext_panel_name[PANEL_NAME_MAX_LEN];
 static int __init prim_display_setup(char *param)
@@ -709,6 +748,7 @@ static void __init msm8960_reserve(void)
 {
 	msm8960_set_display_params(prim_panel_name, ext_panel_name);
 	msm_reserve();
+	reserve_printk_buffer(); //ASUS_BSP simpson: miniporting
 }
 
 static void __init msm8960_allocate_memory_regions(void)
@@ -1327,6 +1367,27 @@ static struct platform_device msm_device_tspp = {
 	},
 };
 
+//+++ASUS_BSP : miniporting
+//asus bsp/larry lai : a60k gpiomux table
+
+extern int __init a60k_gpio_init(void);
+static int __init a60k_gpiomux_init(void)
+{
+	int rc;
+	pr_info("===== %s\n", __func__);
+
+	rc = msm_gpiomux_init(NR_GPIO_IRQS);
+	if (rc) {
+		pr_err(KERN_ERR "msm_gpiomux_init failed %d\n", rc);
+		return rc;
+	}
+
+      a60k_gpio_init();
+	  
+	return 0;
+}
+//---ASUS_BSP : miniporting
+
 #define MSM_SHARED_RAM_PHYS 0x80000000
 
 static void __init msm8960_map_io(void)
@@ -1449,14 +1510,21 @@ static struct msm_bus_scale_pdata usb_bus_scale_pdata = {
 
 static struct msm_otg_platform_data msm_otg_pdata = {
 	.mode			= USB_OTG,
-	.otg_control		= OTG_PMIC_CONTROL,
+#ifdef CONFIG_CHARGER_ASUS
+       .otg_control            = OTG_PMIC_CONTROL,
+#else
+       .otg_control            = OTG_PHY_CONTROL,
+#endif
 	.phy_type		= SNPS_28NM_INTEGRATED_PHY,
-	.pmic_id_irq		= PM8921_USB_ID_IN_IRQ(PM8921_IRQ_BASE),
+	//ASUS_BSP+++ BennyCheng "not checking ID bit for switching host/client mode"
+	//.pmic_id_irq		= PM8921_USB_ID_IN_IRQ(PM8921_IRQ_BASE),
+	//ASUS_BSP--- BennyCheng "not checking ID bit for switching host/client mode"
 	.power_budget		= 750,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.bus_scale_table	= &usb_bus_scale_pdata,
 	.mpm_otgsessvld_int	= MSM_MPM_PIN_USB1_OTGSESSVLD,
 #endif
+	.enable_lpm_on_dev_suspend      = false,
 #ifdef CONFIG_FB_MSM_HDMI_MHL_8334
 	.mhl_dev_name		= "sii8334",
 #endif
@@ -1728,6 +1796,43 @@ static struct msm_spm_platform_data msm_spm_l2_data[] __initdata = {
 	},
 };
 
+//ASUS_BSP lenter+++
+static int enable_rf_switch_regulator(void)
+{
+	static struct regulator *pm8921_l22;
+	int rc = -EINVAL;
+	
+	printk("enable_rf_switch_regulator+++\n");
+	pm8921_l22 = regulator_get(NULL, "8921_l22");
+	if (IS_ERR(pm8921_l22)) {
+		pr_err("%s: regulator get of 8921_l22 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_l22));
+		rc = PTR_ERR(pm8921_l22);
+		return rc;
+	}
+	
+	rc = regulator_set_voltage(pm8921_l22, 2750000, 2750000);
+	if (rc) {
+		pr_err("%s: regulator_set_voltage of 8921_l22 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+	
+	rc = regulator_enable(pm8921_l22);
+	if (rc) {
+		pr_err("%s: regulator_enable of 8921_l22 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+	
+	return 0;
+	
+reg_put:
+	regulator_put(pm8921_l22);
+	return rc;
+}
+//ASUS_BSP lenter---
+
 #define HAP_SHIFT_LVL_OE_GPIO		47
 #define HAP_SHIFT_LVL_OE_GPIO_SGLTE	89
 #define PM_HAP_EN_GPIO		PM8921_GPIO_PM_TO_SYS(33)
@@ -1863,6 +1968,428 @@ static struct i2c_board_info msm_isa1200_board_info[] __initdata = {
 		I2C_BOARD_INFO("isa1200_1", 0x90>>1),
 	},
 };
+
+//ASUS_BSP simpson: touch full porting+++
+#define TOUCH_GPIO_IRQ_ATMEL_T9		11
+#define TOUCH_GPIO_RST_ATMEL_T9		50
+#define ATMEL_I2C_NAME "maXTouch"
+
+static struct regulator *pm8921_l17;
+//static struct regulator *pm8921_lvs4;
+
+static int atmel_platform_init(struct i2c_client *client)
+{
+	int rc = -EINVAL;
+
+	printk("[touch] atmel_platform_init++\n");
+
+	pm8921_l17 = regulator_get(NULL, "8921_l17");
+	if (IS_ERR(pm8921_l17)) {
+		pr_err("[touch] %s: regulator get of 8921_l17 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_l17));
+		rc = PTR_ERR(pm8921_l17);
+		return rc;
+	}
+
+/*
+	pm8921_lvs4 = regulator_get(NULL, "8921_lvs4");
+	if (IS_ERR(pm8921_lvs4)) {
+		pr_err("[touch] %s: regulator get of 8921_lvs4 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_lvs4));
+		rc = PTR_ERR(pm8921_lvs4);
+		return rc;
+	}
+*/
+
+	rc = regulator_set_voltage(pm8921_l17, 3300000, 3300000);
+	if (rc) {
+		pr_err("[touch] %s: regulator_set_voltage of 8921_l17 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+
+/*
+	rc = regulator_set_voltage(pm8921_lvs4, 1800000, 1800000);
+	if (rc) {
+		pr_err("[touch] %s: regulator_set_voltage of 8921_lvs4 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+*/
+
+	rc = regulator_enable(pm8921_l17);
+	if (rc) {
+		pr_err("[touch] %s: regulator_enable of 8921_l17 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+
+/*
+	rc = regulator_enable(pm8921_lvs4);
+	if (rc) {
+		pr_err("[touch] %s: regulator_enable of 8921_lvs4 failed(%d)\n",
+			__func__, rc);
+		goto reg_put;
+	}
+*/
+
+	/* configure touchscreen interrupt gpio */
+	rc = gpio_request(TOUCH_GPIO_IRQ_ATMEL_T9, "touch-irq");
+	if (rc) {
+		pr_err("[touch] %s: unable to request gpio %d (touch-irq)\n",
+			__func__, TOUCH_GPIO_IRQ_ATMEL_T9);
+		goto reg_disable;
+	}
+
+	rc = gpio_direction_input(TOUCH_GPIO_IRQ_ATMEL_T9);
+	if (rc < 0) {
+		pr_err("[touch] %s: unable to set the direction of gpio %d\n",
+			__func__, TOUCH_GPIO_IRQ_ATMEL_T9);
+		goto free_gpio;
+	}
+
+	switch (g_A60K_hwID)
+	{
+	case A60K_EVB:
+	case A60K_SR1_1:
+	case A60K_SR1_2_ES1:
+	case A60K_SR1_2_ES2:
+	case A60K_ER1:
+	case A60K_ER2:
+	case A60K_PR:
+		rc = gpio_request(TOUCH_GPIO_RST_ATMEL_T9, "touch-reset");
+		if (rc) {
+			pr_err("[touch] %s: unable to request gpio %d (touch-reset)\n",
+				__func__, TOUCH_GPIO_RST_ATMEL_T9);
+			goto reg_disable;
+		}	
+
+		rc = gpio_direction_output(TOUCH_GPIO_RST_ATMEL_T9, 0);
+		if (rc < 0) {
+			pr_err("[touch] %s: unable to set the direction of gpio %d\n",
+				__func__, TOUCH_GPIO_RST_ATMEL_T9);
+			goto free_gpio;
+		}
+
+		gpio_set_value(TOUCH_GPIO_RST_ATMEL_T9, 0);
+
+		msleep(1);
+
+		gpio_set_value(TOUCH_GPIO_RST_ATMEL_T9, 1);
+
+		msleep(100);
+
+		printk("[touch] A60K: atmel chip do hw reset\n");
+		break;
+	case A66_HW_ID_SR1_1:
+	case A66_HW_ID_SR2:
+	case A66_HW_ID_ER1:
+	case A66_HW_ID_ER2:
+	case A66_HW_ID_ER3:
+	case A66_HW_ID_PR:
+		printk("[touch] A66: atmel chip doesn't do hw reset\n");
+		break;
+	case A60K_UNKNOWN:
+		printk("[touch] unknown HWID, atmel chip doesn't do hw reset\n");
+		break;
+	default:
+		printk("[touch] No matched HWID, atmel chip doesn't do hw reset\n");
+		break;
+	}
+
+	printk("[touch] atmel_platform_init--\n");
+
+
+	return 0;
+
+free_gpio:
+	gpio_free(TOUCH_GPIO_RST_ATMEL_T9);
+	gpio_free(TOUCH_GPIO_IRQ_ATMEL_T9);
+reg_disable:
+	regulator_disable(pm8921_l17);
+//	regulator_disable(pm8921_lvs4);
+reg_put:
+	regulator_put(pm8921_l17);
+//	regulator_put(pm8921_lvs4);
+	return rc;
+}
+
+static int atmel_platform_exit(struct i2c_client *client)
+{
+	return 0;
+}
+
+static u8 atmel_read_chg(void)
+{
+	return gpio_get_value(TOUCH_GPIO_IRQ_ATMEL_T9);
+}
+
+static u8 atmel_valid_interrupt(void)
+{
+	return !atmel_read_chg();
+}
+
+static struct maxtouch_platform_data atmel_pdata = {
+	.numtouch = 10,
+	.init_platform_hw = atmel_platform_init,
+	.exit_platform_hw = atmel_platform_exit,
+	.max_x = 539,
+	.max_y = 959, //1320,
+	.valid_interrupt = atmel_valid_interrupt,
+	.read_chg = atmel_read_chg,
+};
+
+static struct i2c_board_info atmel_i2c_info[] __initdata = {
+	{
+		I2C_BOARD_INFO(ATMEL_I2C_NAME, MXT224_I2C_ADDR1),
+		.platform_data = &atmel_pdata,
+		.irq = MSM_GPIO_TO_INT(TOUCH_GPIO_IRQ_ATMEL_T9),
+	},
+};
+
+
+#define TOUCH_GPIO_IRQ_ATMEL_T9_PAD		99
+#define ATMEL_I2C_NAME_PAD "maXTouchPad"
+
+static int atmel_platform_init_pad(struct i2c_client *client)
+{
+	static bool bIsGpioReady = false; //joe1_++
+	int rc = -EINVAL;
+
+	printk("[touch_pad] atmel_platform_init_pad++\n");
+
+	//joe1_++
+	if ( bIsGpioReady == true )
+	{
+		printk("[touch_pad] atmel_platform_init_pad--bIsGpioReady=%d\n",bIsGpioReady);
+
+		return 0;
+	}
+	//joe1_--
+
+	/* configure touchscreen interrupt gpio */
+	rc = gpio_request(TOUCH_GPIO_IRQ_ATMEL_T9_PAD, "touch-irq-pad");
+	if (rc) {
+		pr_err("[touch_pad] %s: unable to request gpio %d (touch-irq-pad)\n",
+			__func__, TOUCH_GPIO_IRQ_ATMEL_T9_PAD);
+		goto reg_disable;
+	}
+
+	rc = gpio_direction_input(TOUCH_GPIO_IRQ_ATMEL_T9_PAD);
+	if (rc < 0) {
+		pr_err("[touch_pad] %s: unable to set the direction of gpio %d\n",
+			__func__, TOUCH_GPIO_IRQ_ATMEL_T9_PAD);
+		goto free_gpio;
+	}
+
+	bIsGpioReady = true; //joe1_++
+
+	printk("[touch_pad] atmel_platform_init_pad--\n");
+
+	return 0;
+
+free_gpio:
+	gpio_free(TOUCH_GPIO_IRQ_ATMEL_T9_PAD);
+reg_disable:
+	return rc;
+}
+
+static int atmel_platform_exit_pad(struct i2c_client *client)
+{
+	return 0;
+}
+
+static u8 atmel_read_chg_pad(void)
+{
+	return gpio_get_value(TOUCH_GPIO_IRQ_ATMEL_T9_PAD);
+}
+
+static u8 atmel_valid_interrupt_pad(void)
+{
+	return !atmel_read_chg_pad();
+}
+
+static struct maxtouch_platform_data atmel_pdata_pad = {
+	.numtouch = 10,
+	.init_platform_hw = atmel_platform_init_pad,
+	.exit_platform_hw = atmel_platform_exit_pad,
+	.max_x = 1279,
+	.max_y = 799,
+	.valid_interrupt = atmel_valid_interrupt_pad,
+	.read_chg = atmel_read_chg_pad,
+};
+
+static struct i2c_board_info atmel_i2c_info_P01[] __initdata = {
+	{
+		I2C_BOARD_INFO(ATMEL_I2C_NAME_PAD, MXT768_I2C_ADDR2),
+		.platform_data = &atmel_pdata_pad,
+		.irq = MSM_GPIO_TO_INT(TOUCH_GPIO_IRQ_ATMEL_T9_PAD),
+	},
+};
+
+static struct i2c_board_info atmel_i2c_info_P02[] __initdata = {
+	{
+		I2C_BOARD_INFO(ATMEL_I2C_NAME_PAD, MXT1386_I2C_ADDR4),
+		.platform_data = &atmel_pdata_pad,
+		.irq = MSM_GPIO_TO_INT(TOUCH_GPIO_IRQ_ATMEL_T9_PAD),
+	},
+};
+//--- ASUS_BSP simpson: touch full porting ---
+
+//Rice: fm34 added
+static struct i2c_board_info fm34_info[] __initdata = {
+    {
+        I2C_BOARD_INFO("fm34", 0x60),
+    },
+};
+//Rice: fm34 added
+
+//ASUS BSP Tim++
+static struct i2c_board_info p02_backlight_info[] __initdata = {
+    {
+//        I2C_BOARD_INFO("p02_backlight", 0x6E),
+        I2C_BOARD_INFO("p02_backlight", 0x37),
+    },
+};
+//ASUS BSP Tim--
+
+//ASUS BSP Lenter+++
+static struct i2c_board_info p02_scaler_update_info[] __initdata = {
+    {
+        I2C_BOARD_INFO("p02_scaler_update", 0x4A),
+    },
+};
+//ASUS BSP Lenter---
+
+// sina++ 
+
+static struct microP_platform_data nuvoton_microp_pdata={
+        .intr_gpio=107,
+};
+
+static struct i2c_board_info __initdata enterprise_nuvoton_microp[] = {
+	{
+		I2C_BOARD_INFO("microp", 0x15),
+		.irq=MSM_GPIO_TO_INT(107),
+		.platform_data	= &nuvoton_microp_pdata,
+	},
+};
+
+// ASUS_BSP Jiunhau_Wang EC porting +++
+static struct i2c_board_info __initdata dock_i2c_boardinfo[] = {
+        {
+                I2C_BOARD_INFO("asusec", 0x19),
+        },
+};
+// ASUS_BSP Jiunhau_Wang EC porting ---
+
+//++[psensor] add cm3623 support
+
+#define GPIO_PROXIMITY_PWR_EN       38
+#define GPIO_PROXIMITY_INT          49
+
+static int cm3623_platform_init(struct i2c_client *client)
+{
+    int rc = -EINVAL;
+
+    printk("[cm3623][board]cm3623_platform_init++\n");
+
+    /* configure touchscreen interrupt gpio */
+    rc = gpio_request(GPIO_PROXIMITY_INT, "cm3623-irq");
+    if (rc) {
+        pr_err("%s: unable to request gpio %d (cm3623-irq)\n",
+            __func__, GPIO_PROXIMITY_INT);
+        goto err;
+    }
+
+    //rc = gpio_direction_output(GPIO_PROXIMITY_INT, 1);
+    //cgpio_set_value(GPIO_PROXIMITY_INT, 1);
+
+    rc = gpio_direction_input(GPIO_PROXIMITY_INT);
+    if (rc < 0) {
+        pr_err("%s: unable to set the direction of gpio %d\n",
+            __func__, GPIO_PROXIMITY_INT);
+        goto err;
+    }
+
+    rc = gpio_request(GPIO_PROXIMITY_PWR_EN, "proxm_pwr_en");
+    if (rc) {
+        pr_err("%s: unable to request gpio %d (proxm_pwr_en)\n",
+            __func__, GPIO_PROXIMITY_PWR_EN);
+        goto err;
+    }   
+
+    rc = gpio_direction_output(GPIO_PROXIMITY_PWR_EN, 1);
+    if (rc < 0) {
+        pr_err("%s: unable to set the direction of gpio %d\n",
+            __func__, GPIO_PROXIMITY_PWR_EN);
+        goto err;
+    }
+
+    gpio_set_value(GPIO_PROXIMITY_PWR_EN, 1);
+
+    printk("[cm3623][board]cm3623_platform_init--\n");
+
+    return 0;
+
+err:
+    gpio_free(GPIO_PROXIMITY_PWR_EN);
+    return rc;
+}
+
+static int cm3623_platform_exit(struct i2c_client *client)
+{
+    return 0;
+}
+
+static u8 cm3623_read_int_pin_state(void)
+{
+    return gpio_get_value(GPIO_PROXIMITY_INT);
+}
+
+
+static struct cm3623_platform_data cm3623_pdata = {
+    .init_platform_hw = cm3623_platform_init,
+    .exit_platform_hw = cm3623_platform_exit,
+    .read_int_pin_state = cm3623_read_int_pin_state,
+};
+
+static struct i2c_board_info cm3623_i2c_info[] __initdata = {
+    {
+        I2C_BOARD_INFO("cm3623", 0x48),
+        .platform_data = &cm3623_pdata,
+        .irq = MSM_GPIO_TO_INT(GPIO_PROXIMITY_INT),
+    },
+};
+
+//--[psensor] add cm3623 support
+
+//++[light sensor][P01] al3010 support
+static int al3010_P01_platform_init(struct i2c_client *client)
+{
+    return 0;
+}
+
+static int al3010_P01_platform_exit(struct i2c_client *client)
+{
+    return 0;
+}
+
+static struct cm3623_platform_data al3010_P01_pdata = {
+    .init_platform_hw = al3010_P01_platform_init,
+    .exit_platform_hw = al3010_P01_platform_exit,
+};
+
+static struct i2c_board_info al3010_P01_i2c_info[] __initdata = {
+    {
+        I2C_BOARD_INFO("al3010", 0x1C),
+        .platform_data = &al3010_P01_pdata,
+    },
+};
+//--[light sensor][P01] al3010 support
+
+//+++ ASUS_BSP : miniporting
+#if 0
 
 #define CYTTSP_TS_GPIO_IRQ		11
 #define CYTTSP_TS_SLEEP_GPIO		50
@@ -2315,6 +2842,9 @@ static struct i2c_board_info mxt_device_info[] __initdata = {
 	},
 };
 
+#endif
+//--- ASUS_BSP : miniporting
+
 static struct msm_mhl_platform_data mhl_platform_data = {
 	.irq = MSM_GPIO_TO_INT(4),
 	.gpio_mhl_int = MHL_GPIO_INT,
@@ -2323,6 +2853,23 @@ static struct msm_mhl_platform_data mhl_platform_data = {
 	.gpio_hdmi_mhl_mux = 0,
 };
 
+//ASUS BSP TIM-2011.09.22++
+#define LPM_CHANNEL0 0
+static int a60k_backlight_gpio[] = {LPM_CHANNEL0};
+static struct a60k_backlight_data a60k_backlight_pdata = {
+    .max_backlight_level = 255,
+    .min_backlight_level = 1,
+    .gpio = a60k_backlight_gpio,
+};
+
+static struct platform_device a60k_backlight_device = {
+    .name   = "a60k_backlight",
+    .id     = 0,
+    .dev = {
+        .platform_data = &a60k_backlight_pdata,
+    }
+};
+//ASUS BSP TIM-2011.09.22--
 static struct i2c_board_info sii_device_info[] __initdata = {
 	{
 #ifdef CONFIG_FB_MSM_HDMI_MHL_8334
@@ -2429,7 +2976,7 @@ static struct platform_device fish_battery_device = {
 	.name = "fish_battery",
 };
 #endif
-
+/* ++Ledger Yen
 #ifdef CONFIG_BATTERY_BCL
 static struct platform_device battery_bcl_device = {
 	.name = "battery_current_limit",
@@ -2469,7 +3016,7 @@ static struct platform_device msm8960_device_ext_otg_sw_vreg __devinitdata = {
 		.platform_data =
 			&msm_gpio_regulator_pdata[GPIO_VREG_ID_EXT_OTG_SW],
 	},
-};
+};*/
 
 static struct platform_device msm8960_device_rpm_regulator __devinitdata = {
 	.name	= "rpm-regulator",
@@ -2654,6 +3201,101 @@ static void __init bt_power_init(void)
 #else
 #define bt_power_init(x) do {} while (0)
 #endif
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_MAXIM_8934_CHARGER
+static struct platform_device a66_charger_device = {
+	.name = "asus_chg",
+	.id = 0,
+};
+static void determine_charger_device(void)
+{
+	switch (g_A60K_hwID) {
+	case A60K_EVB:
+	case A60K_SR1_1: 
+	case A60K_SR1_2_ES1:
+	case A60K_SR1_2_ES2:
+	case A60K_ER1:
+	case A60K_ER2:
+	case A60K_PR:
+	case A66_HW_ID_SR1_1:
+	case A66_HW_ID_SR2:
+	case A66_HW_ID_ER1:
+        break;
+	case A66_HW_ID_ER2:
+	case A66_HW_ID_ER3:
+	case A66_HW_ID_PR:	
+		pr_info("[BAT]hw id: %d register determine_charger_device \r\n", g_A60K_hwID);
+		platform_device_register(&a66_charger_device);
+		break;
+	default:
+		pr_err("[BAT] Error!! uknown hw id:%d. cannot register asus chg device\n", g_A60K_hwID);
+	}
+	return;
+}
+
+#endif //#ifdef CONFIG_MAXIM_8934_CHARGER
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+static struct resource a60k_asus_bat_resources[] = {
+	{
+		.name = "bat_low_gpio",
+		.start = 24,
+		.end = 24,
+		.flags = IORESOURCE_IO,
+	},
+};
+static struct platform_device a60k_asus_bat_device = {
+	.name = "asus_bat",
+	.id = 0,
+	.num_resources = ARRAY_SIZE(a60k_asus_bat_resources),
+	.resource = a60k_asus_bat_resources,	
+};
+
+static struct resource a66_asus_bat_resources[] = {
+	{
+		.name = "bat_low_gpio",
+		.start = 35,
+		.end = 35,
+		.flags = IORESOURCE_IO,
+	},
+};
+static struct platform_device a66_asus_bat_device = {
+	.name = "asus_bat",
+	.id = 0,
+	.num_resources = ARRAY_SIZE(a66_asus_bat_resources),
+	.resource = a66_asus_bat_resources,	
+};
+
+static void determine_bat_device(void)
+{
+	switch (g_A60K_hwID) {
+	case A60K_EVB:
+	case A60K_SR1_1: 
+	case A60K_SR1_2_ES1:
+	case A60K_SR1_2_ES2:
+	case A60K_ER1:
+	case A60K_ER2:
+	case A60K_PR:
+		pr_info("[BAT]hw id: %d register a60k_asus_bat_device \r\n", g_A60K_hwID);
+		platform_device_register(&a60k_asus_bat_device);
+		break;
+	case A66_HW_ID_SR1_1:
+	case A66_HW_ID_SR2:
+	case A66_HW_ID_ER1:
+	case A66_HW_ID_ER2:
+	case A66_HW_ID_ER3:
+	case A66_HW_ID_PR:	
+		pr_info("[BAT]hw id: %d register a66_asus_bat_device \r\n", g_A60K_hwID);
+		platform_device_register(&a66_asus_bat_device);
+		break;
+	default:
+		pr_err("[BAT] Error!! uknown hw id:%d. cannot register asus bat device\n", g_A60K_hwID);
+	}
+	return;
+}	
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 
 static struct platform_device *common_devices[] __initdata = {
 	&msm8960_device_dmov,
@@ -2661,13 +3303,16 @@ static struct platform_device *common_devices[] __initdata = {
 	&msm_device_uart_dm6,
 	&msm_device_saw_core0,
 	&msm_device_saw_core1,
-	&msm8960_device_ext_5v_vreg,
+//	&msm8960_device_ext_5v_vreg,//Ledger Yen
 	&msm8960_device_ssbi_pmic,
-	&msm8960_device_ext_otg_sw_vreg,
+//	&msm8960_device_ext_otg_sw_vreg,//Ledger Yen
 	&msm8960_device_qup_spi_gsbi1,
 	&msm8960_device_qup_i2c_gsbi3,
 	&msm8960_device_qup_i2c_gsbi4,
 	&msm8960_device_qup_i2c_gsbi10,
+    //ASUS BSP TIM-2011.09.22++
+    &a60k_backlight_device,
+    //ASUS BSP TIM-2011.09.22--
 #ifndef CONFIG_MSM_DSPS
 	&msm8960_device_qup_i2c_gsbi12,
 #endif
@@ -2970,7 +3615,53 @@ static struct platform_device msm_dev_avtimer_device = {
 	.name = "dev_avtimer",
 	.dev = { .platform_data = &dev_avtimer_pdata },
 };
+//ASUS_BSP +++ Jason Chang "9-axis sensor porting"
+#ifdef CONFIG_MPU_SENSORS_MPU3050
+#define SENSOR_MPU_NAME "mpu3050"
+static struct mpu_platform_data mpu3050_data = {
+        .int_config  = 0x10,
+        .orientation = { 0, -1, 0, -1, 0, 0, 0, 0, -1 },
+        .level_shifter = 0,
+};
+static struct ext_slave_platform_data inv_mpu_kxtf9_data = {
+	.bus         = EXT_SLAVE_BUS_SECONDARY,
+	.orientation = { -1, 0, 0, 0, -1, 0, 0, 0, 1 },
+};
+static struct ext_slave_platform_data inv_mpu_ami306_data = {
+	.bus = EXT_SLAVE_BUS_PRIMARY,
+	.orientation = { 0, 1, 0, 1, 0, 0, 0, 0, -1 },
+};
 
+#define SENSOR_MPU_6050_NAME "mpu6050"
+static struct mpu_platform_data mpu_6050_data = {
+        .int_config  = 0x10,
+        .orientation = { 0, -1, 0, -1, 0, 0, 0, 0, -1 },
+        .level_shifter = 0,
+};
+static struct i2c_board_info __initdata mpu_i2c_boardinfo[] = {
+	{
+		I2C_BOARD_INFO(SENSOR_MPU_NAME, 0x69),
+		.irq = MSM_GPIO_TO_INT(69),
+		.platform_data = &mpu3050_data,
+	},
+	{
+		I2C_BOARD_INFO("kxtf9", 0x0F),
+		//.irq = MSM_GPIO_TO_INT(67),	 // use timerirq
+		.platform_data = &inv_mpu_kxtf9_data,
+	},
+	{
+		I2C_BOARD_INFO("ami306", 0x0E),
+		//.irq = MSM_GPIO_TO_INT(68), // use timerirq
+		.platform_data = &inv_mpu_ami306_data,
+	},
+	{      //MPU6050 Chip
+		I2C_BOARD_INFO(SENSOR_MPU_6050_NAME, 0x68),
+		.irq = MSM_GPIO_TO_INT(69),
+		.platform_data = &mpu_6050_data,
+	},
+};
+#endif
+//ASUS_BSP --- Jason Chang "9-axis sensor porting"
 /* Sensors DSPS platform data */
 #ifdef CONFIG_MSM_DSPS
 #define DSPS_PIL_GENERIC_NAME		"dsps"
@@ -3069,7 +3760,41 @@ static struct i2c_board_info liquid_io_expander_i2c_info[] __initdata = {
 };
 #endif
 
+//ASUS_BSP simpson: touch full porting +++
+static struct i2c_registry i2c_devices_touch_P01 __initdata = {
+	I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+	MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+	atmel_i2c_info_P01,
+	ARRAY_SIZE(atmel_i2c_info_P01),
+};
+
+static struct i2c_registry i2c_devices_touch_P02 __initdata = {
+	I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+	MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+	atmel_i2c_info_P02,
+	ARRAY_SIZE(atmel_i2c_info_P02),
+};
+//ASUS_BSP simpson: touch full porting ---
+
 static struct i2c_registry msm8960_i2c_devices[] __initdata = {
+//ASUS_BSP +++ Jason Chang "9-axis sensor porting"
+#ifdef CONFIG_MPU_SENSORS_MPU3050
+	{
+		I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+		MSM_8960_GSBI12_QUP_I2C_BUS_ID, //GSBI12
+		mpu_i2c_boardinfo,
+		ARRAY_SIZE(mpu_i2c_boardinfo),
+	},
+#endif
+//ASUS_BSP --- Jason Chang "9-axis sensor porting"//+++ ASUS_BSP : miniporting
+//ASUS_BSP simpson: touch full porting +++
+	{
+		I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
+		atmel_i2c_info,
+		ARRAY_SIZE(atmel_i2c_info),
+	},
+//ASUS_BSP simpson: touch full porting ---
 #ifdef CONFIG_ISL9519_CHARGER
 	{
 		I2C_LIQUID,
@@ -3078,6 +3803,39 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		ARRAY_SIZE(isl_charger_i2c_info),
 	},
 #endif /* CONFIG_ISL9519_CHARGER */
+//sina ++
+        {
+              I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+		MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+              enterprise_nuvoton_microp,
+              ARRAY_SIZE(enterprise_nuvoton_microp),
+        },
+//+++ ASUS_BSP : miniporting
+// ASUS_BSP Jiunhau_Wang EC porting +++        
+        {
+              I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+                MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+              dock_i2c_boardinfo,
+              ARRAY_SIZE(dock_i2c_boardinfo),
+        },
+// ASUS_BSP Jiunhau_Wang EC porting ---
+
+//[PSensor] Add cm3623 support
+    {
+        I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+        MSM_8960_GSBI12_QUP_I2C_BUS_ID,
+        cm3623_i2c_info,
+        ARRAY_SIZE(cm3623_i2c_info),
+    },
+	
+//[LSensor] Add al3010 of P01 support
+    {
+        I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+        MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+        al3010_P01_i2c_info,
+        ARRAY_SIZE(al3010_P01_i2c_info),
+    },
+#if 0
 	{
 		I2C_SURF | I2C_FFA | I2C_FLUID,
 		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
@@ -3090,6 +3848,36 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		mxt_device_info,
 		ARRAY_SIZE(mxt_device_info),
 	},
+#endif
+//--- ASUS_BSP : miniporting
+
+//Rice: fm34 added
+    {
+        I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+        MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+        fm34_info,
+        ARRAY_SIZE(fm34_info),
+    },
+//Rice: fm34 added
+
+//ASUS BSP TIM++
+    {
+        I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+        MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+        p02_backlight_info,
+        ARRAY_SIZE(p02_backlight_info),
+    },
+//ASUS BSP TIM--
+
+//ASUS BSP Lenter+++
+    {
+        I2C_SURF | I2C_FFA | I2C_FLUID | I2C_RUMI,
+        MSM_8960_GSBI10_QUP_I2C_BUS_ID,
+        p02_scaler_update_info,
+        ARRAY_SIZE(p02_scaler_update_info),
+    },
+//ASUS BSP Lenter---
+
 	{
 		I2C_SURF | I2C_FFA | I2C_LIQUID,
 		MSM_8960_GSBI10_QUP_I2C_BUS_ID,
@@ -3139,6 +3927,7 @@ static void __init register_i2c_devices(void)
 	else
 		pr_err("unmatched machine ID in register_i2c_devices\n");
 
+#if 0
 	if (machine_is_msm8960_liquid()) {
 		if (SOCINFO_VERSION_MAJOR(socinfo_get_platform_version()) == 3)
 			mxt_device_info[0].platform_data =
@@ -3147,7 +3936,7 @@ static void __init register_i2c_devices(void)
 			mxt_device_info[0].platform_data =
 						&mxt_platform_data_2d;
 	}
-
+#endif
 	/* Run the array and install devices as appropriate */
 	for (i = 0; i < ARRAY_SIZE(msm8960_i2c_devices); ++i) {
 		if (msm8960_i2c_devices[i].machs & mach_mask)
@@ -3158,6 +3947,38 @@ static void __init register_i2c_devices(void)
 
 	if (!mhl_platform_data.gpio_mhl_power)
 		pr_debug("mhl device configured for ext debug board\n");
+		
+//ASUS_BSP simpson: touch full porting +++
+    switch(g_A60K_hwID)
+    {
+        case A60K_EVB:
+        case A60K_SR1_1:
+        case A60K_SR1_2_ES1:
+        case A60K_SR1_2_ES2:
+        case A60K_ER1:
+        case A60K_ER2:
+        case A60K_PR:
+            i2c_register_board_info(i2c_devices_touch_P01.bus, i2c_devices_touch_P01.info, i2c_devices_touch_P01.len);
+            printk("[touch_pad] A60K: register i2c dev of P01 touch\n");
+            break;
+        case A66_HW_ID_SR1_1:
+        case A66_HW_ID_SR2:
+        case A66_HW_ID_ER1:
+        case A66_HW_ID_ER2:
+        case A66_HW_ID_PR:
+            i2c_register_board_info(i2c_devices_touch_P02.bus, i2c_devices_touch_P02.info, i2c_devices_touch_P02.len);
+            printk("[touch_pad] A66: register i2c dev of P02 touch\n");
+            break;
+        case A60K_UNKNOWN:
+            i2c_register_board_info(i2c_devices_touch_P02.bus, i2c_devices_touch_P02.info, i2c_devices_touch_P02.len);
+            printk("[touch_pad] unknown HWID, register i2c dev of P02 touch\n");
+            break;
+        default:
+            i2c_register_board_info(i2c_devices_touch_P02.bus, i2c_devices_touch_P02.info, i2c_devices_touch_P02.len);
+            printk("[touch_pad] No matched HWID, register i2c dev of P02 touch\n");
+            break;
+    }
+//ASUS_BSP simpson: touch full porting ---
 
 #ifdef CONFIG_MSM_CAMERA
 	if (msm8960_camera_i2c_devices.machs & mach_mask)
@@ -3167,6 +3988,404 @@ static void __init register_i2c_devices(void)
 #endif
 #endif
 }
+//ASUS_BSP +++ Jason Chang "9-axis sensor porting"
+#ifdef CONFIG_MPU_SENSORS_MPU3050
+static int sensor_platform_init(void)
+{
+    int rc = -EINVAL;
+//ASUS_BSP +++ Jason_Chang "porting A66 9-axis sensor"
+    int ecompass_gpio = 0;
+    int gyro_gpio = 0;
+    int gsensor_gpio = 0;
+//ASUS_BSP --- Jason_Chang "porting A66 9-axis sensor"
+
+    printk("sensor_platform_init++\n");
+//ASUS_BSP +++ Jason_Chang "porting A66 9-axis sensor"
+    switch(g_A60K_hwID)
+    {
+        case A60K_EVB:
+        case A60K_SR1_1:
+        case A60K_SR1_2_ES1:
+        case A60K_SR1_2_ES2:
+        case A60K_ER1:
+        case A60K_ER2:
+        case A60K_PR:
+            printk("apply A60K sensor GPIO\n");
+            ecompass_gpio = ECOM_GPIO_IRQ_AMI306;
+            gyro_gpio = GYRO_GPIO_IRQ_MPU3050;
+            gsensor_gpio = GSEN_GPIO_IRQ_KXTF9;
+            break;
+        case A66_HW_ID_SR1_1:
+        case A66_HW_ID_SR2:
+        case A66_HW_ID_ER1:
+            printk("apply A66 ER1 sensor GPIO\n");
+            ecompass_gpio = A66_ECOM_GPIO_IRQ_AMI306;
+            gyro_gpio = A66_GYRO_GPIO_IRQ_MPU3050;
+            gsensor_gpio = A66_GSEN_GPIO_IRQ_KXTF9;
+            break;
+
+        case A66_HW_ID_ER2:
+        case A66_HW_ID_ER3:
+        case A66_HW_ID_PR:
+            printk("apply A66 ER2 sensor GPIO\n");
+            ecompass_gpio = A66_ECOM_GPIO_IRQ_AMI306;
+            gyro_gpio = A66_GYRO_GPIO_IRQ_MPU3050;
+            gsensor_gpio = A66_GSEN_GPIO_IRQ_KXTF9_ER2;
+            break;
+        case A60K_UNKNOWN:
+            printk("unknown HWID, can't set sensor GPIO\n");
+            break;
+        default:
+            break;
+    }
+    if(ecompass_gpio <= 0 || gyro_gpio <= 0 || gsensor_gpio <= 0)
+    {
+        printk("[sensor]failed to set IRQ\n");
+        return rc;
+    }
+//ASUS_BSP --- Jason_Chang "porting A66 9-axis sensor"
+	
+    // get LDO9
+    pm8921_l9 = regulator_get(NULL, "8921_l9");
+    if (IS_ERR(pm8921_l9)) {
+        pr_err("%s: regulator get of 8921_l9 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_l9));
+	rc = PTR_ERR(pm8921_l9);
+	return rc;
+    }
+    
+    // set LDO9 to 2.85V
+    rc = regulator_set_voltage(pm8921_l9, 2850000, 2850000);
+    if (rc) {
+	pr_err("%s: regulator_set_voltage of 8921_l9 failed(%d)\n",
+	        	__func__, rc);
+	goto reg_put_LDO9;
+    }
+
+    //enable LDO9 for sensors
+    rc = regulator_enable(pm8921_l9);
+    if (rc) {
+	pr_err("%s: regulator_enable of 8921_l9 failed(%d)\n",
+			__func__, rc);
+	goto reg_put_LDO9;
+    }
+
+    // get LSV4
+    pm8921_lvs4 = regulator_get(NULL, "8921_lvs4");
+    if (IS_ERR(pm8921_lvs4)) {
+        pr_err("%s: regulator get of 8921_lvs4 failed (%ld)\n",
+			__func__, PTR_ERR(pm8921_lvs4));
+	rc = PTR_ERR(pm8921_lvs4);
+	return rc;
+    }
+
+    rc = regulator_enable(pm8921_lvs4);
+    if (rc) {
+		pr_err("%s: regulator_enable of 8921_lvs4 failed(%d)\n",
+			__func__, rc);
+	goto reg_put_lv4;
+    }
+
+//ASUS_BSP +++ Jason_Chang "porting A66 9-axis sensor"
+    /* configure sensor interrupt gpio */
+    rc = gpio_request(gyro_gpio, "gyro-irq");
+    if (rc) {
+        pr_err("%s: unable to request gpio %d (gyro-irq)\n",
+			__func__, gyro_gpio);
+        goto reg_disable;
+    }
+
+    rc = gpio_direction_input(gyro_gpio);
+    if (rc < 0) {
+        pr_err("%s: unable to set the direction of gpio %d\n",
+			__func__, gyro_gpio);
+        goto free_gpio;
+    }
+
+    rc = gpio_request(gsensor_gpio, "gsensor-irq");
+    if (rc) {
+        pr_err("%s: unable to request gpio %d (gsensor-irq)\n",
+			__func__, gsensor_gpio);
+        goto reg_disable;
+    }
+
+    rc = gpio_direction_input(gsensor_gpio);
+    if (rc < 0) {
+        pr_err("%s: unable to set the direction of gpio %d\n",
+			__func__, gsensor_gpio);
+        goto free_gpio;
+    }
+
+    rc = gpio_request(ecompass_gpio, "e-compass-irq");
+    if (rc) {
+        pr_err("%s: unable to request gpio %d (e-compass-irq)\n",
+			__func__, ecompass_gpio);
+        goto reg_disable;
+    }
+
+    rc = gpio_direction_input(ecompass_gpio);
+    if (rc < 0) {
+        pr_err("%s: unable to set the direction of gpio %d\n",
+			__func__, ecompass_gpio);
+        goto free_gpio;
+    }
+    return 0;
+//ASUS_BSP --- Jason_Chang "porting A66 9-axis sensor"
+    
+reg_disable:
+    regulator_disable(pm8921_l9);
+    regulator_disable(pm8921_lvs4);
+    
+free_gpio:
+    gpio_free(ECOM_GPIO_IRQ_AMI306);
+    gpio_free(GYRO_GPIO_IRQ_MPU3050);
+    gpio_free(GSEN_GPIO_IRQ_KXTF9);
+
+reg_put_LDO9:
+	regulator_put(pm8921_l9);
+reg_put_lv4:
+        regulator_put(pm8921_lvs4);
+
+	return rc;
+}
+static void msm8960_mpuirq_init(void)
+{
+	/* EVB */
+        signed char orientationGyroEP_EVB [9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        signed char orientationAccelEP_EVB [9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        signed char orientationMagEP_EVB [9] = { 0, -1, 0, 1, 0, 0, 0, 0, 1 };
+
+        //ASUS BSP +++ Jason Chang "Add orientation for SR1"
+        /*SR1*/
+        //kernel driver must keep a copy of this orientation
+        signed char orientationGyroEP_SR1 [9] = { -1, 0, 0, 0, 1, 0, 0, 0, -1 };
+        signed char orientationAccelEP_SR1 [9] = { -1, 0, 0, 0, -1, 0, 0, 0, 1 };
+        signed char orientationMagEP_SR1 [9] = { 1, -0, 0, 0, 1, 0, 0, 0, 1 };
+        //ASUS BSP --- Jason Chang "Add orientation for SR1"
+
+//ASUS_BSP +++ Jason_Chang "porting A66 9-axis sensor
+        signed char orientationGyroEP_A66SR1 [9] = { 0, 1, 0, -1, 0, 0, 0, 0, 1 };
+        signed char orientationAccelEP_A66SR1 [9] = { -1, 0, 0, 0, -1, 0, 0, 0, 1 };
+        signed char orientationMagEP_A66SR1 [9] = { 0, 1, 0, 1, 0, 0, 0, 0, -1 };
+//ASUS_BSP --- Jason_Chang "porting A66 9-axis sensor
+        
+	pr_info("*** MPU START *** enterprise_mpuirq_init...\n");
+
+        //ASUS BSP +++ Jason Chang "Add orientation for SR1"
+        switch (g_A60K_hwID)
+        {
+            case A60K_EVB:
+                printk("apply evb orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_EVB, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_EVB, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_EVB, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+        
+            case A60K_SR1_1:
+                printk("apply sr1-1 orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_SR1, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_SR1, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+
+            case A60K_SR1_2_ES1:
+            case A60K_SR1_2_ES2:
+                printk("apply sr1-2 orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_SR1, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_SR1, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+                               
+            case A60K_ER1:
+                printk("apply er1 orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_SR1, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_SR1, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+
+            case A60K_ER2:
+                printk("apply er2 orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_SR1, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_SR1, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+
+            case A60K_PR:
+                printk("apply er orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_SR1, sizeof(mpu3050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_SR1, sizeof(inv_mpu_ami306_data.orientation));
+                break;
+				
+//ASUS_BSP +++ Jason_Chang "porting A66 9-axis sensor"
+            case A66_HW_ID_SR1_1:
+            case A66_HW_ID_SR2:
+            case A66_HW_ID_ER1:
+            case A66_HW_ID_ER2:
+	    case A66_HW_ID_ER3:
+            case A66_HW_ID_PR:
+                printk("apply A66_SR1 orientation\n");
+                memcpy( mpu3050_data.orientation, orientationGyroEP_A66SR1, sizeof(mpu3050_data.orientation));
+                memcpy( mpu_6050_data.orientation, orientationGyroEP_A66SR1, sizeof(mpu_6050_data.orientation));
+                memcpy( inv_mpu_kxtf9_data.orientation, orientationAccelEP_A66SR1, sizeof(inv_mpu_kxtf9_data.orientation));
+                memcpy( inv_mpu_ami306_data.orientation, orientationMagEP_A66SR1, sizeof(inv_mpu_ami306_data.orientation));
+                inv_mpu_kxtf9_data.irq = 0;//MSM_GPIO_TO_INT(92);
+                mpu_i2c_boardinfo[0].irq = MSM_GPIO_TO_INT(96);
+                mpu_i2c_boardinfo[3].irq = MSM_GPIO_TO_INT(96); //for mpu6050
+                break;
+//ASUS_BSP --- Jason_Chang "porting A66 9-axis sensor"
+				
+            default:
+                printk(KERN_ERR "[ERROR] There is NO valid hardware ID\n");
+                break;
+
+        }
+        //ASUS BSP --- Jason Chang "Add orientation for SR1"
+        
+        if(sensor_platform_init())
+            pr_info("sensor_platform_init fail\n");
+
+	pr_info("\n*** MPU END *** enterprise_mpuirq_init...\n");
+#if defined(CONFIG_MPU_SENSORS_AMI306)
+	pr_info("AMI306 on the board\n");
+#else
+	pr_info("AMI30X on the board\n");
+#endif
+
+        return;
+}
+#endif
+//ASUS_BSP --- Jason Chang "9-axis sensor porting"
+
+//ASUS BSP TIM-2011.08.24--
+//ASUS BSP TIM_SU-for a60k++
+static struct gpio_keys_button a60k_gpio_keys_button[] = {
+    {
+        .code           = KEY_VOLUMEUP,
+        .type           = EV_KEY,
+        .gpio           = 13,
+        .active_low     = 1,
+        .wakeup         = 0,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "Vol_up",
+    },
+    {
+        .code           = KEY_VOLUMEDOWN,
+        .type           = EV_KEY,
+        .gpio           = 14,
+        .active_low     = 1,
+        .wakeup         = 0,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "Vol_down",
+    },
+        {
+        .code           = KEY_POWER,
+        .type           = EV_KEY,
+        .gpio           = 15,
+        .active_low     = 1,
+        .wakeup         = 1,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "power_key",
+    },
+
+};
+
+
+static struct gpio_keys_platform_data A60K_keys_platform_data = {
+    .buttons    = a60k_gpio_keys_button,
+    .nbuttons   = ARRAY_SIZE(a60k_gpio_keys_button),
+};
+
+static struct platform_device A60K_gpio_platform_device = {
+    .name   = "gpio-keys",
+    .id     = 0,
+    .dev    = {
+        .platform_data  = &A60K_keys_platform_data,
+    },
+};
+int __init a60k_gpio_keys_init(void)
+{
+    
+    pr_info("Registering qualcomm-gpio\n");
+    platform_device_register(&A60K_gpio_platform_device);
+    pr_info("Registering successful qualcomm-gpio\n");
+    return 0;
+}
+//ASUS BSP TIM_SU-for a60k--
+//ASUS BSP TIM_SU-for a66++
+static struct gpio_keys_button a66_gpio_keys_button[] = {
+    {
+        .code           = KEY_VOLUMEUP,
+        .type           = EV_KEY,
+        .gpio           = 67,
+        .active_low     = 1,
+        .wakeup         = 0,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "Vol_up",
+    },
+    {
+        .code           = KEY_VOLUMEDOWN,
+        .type           = EV_KEY,
+        .gpio           = 58,
+        .active_low     = 1,
+        .wakeup         = 0,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "Vol_down",
+    },
+        {
+        .code           = KEY_POWER,
+        .type           = EV_KEY,
+        .gpio           = 15,
+        .active_low     = 1,
+        .wakeup         = 1,
+        .debounce_interval  = 5, /* ms */
+        .desc           = "power_key",
+    },
+
+};
+
+
+static struct gpio_keys_platform_data A66_keys_platform_data = {
+    .buttons    = a66_gpio_keys_button,
+    .nbuttons   = ARRAY_SIZE(a66_gpio_keys_button),
+};
+
+static struct platform_device A66_gpio_platform_device = {
+    .name   = "gpio-keys",
+    .id     = 0,
+    .dev    = {
+        .platform_data  = &A66_keys_platform_data,
+    },
+};
+int __init a66_gpio_keys_init(void)
+{
+    
+    pr_info("Registering qualcomm-gpio\n");
+    platform_device_register(&A66_gpio_platform_device);
+    pr_info("Registering successful qualcomm-gpio\n");
+    return 0;
+}
+//ASUS BSP TIM_SU-for a66--
+
+//ASUS_BSP lenter +++
+#ifdef CONFIG_HALL_SENSOR
+static struct resource hall_sensor_resources[] = {
+	{
+		.name = "hall_sensor_gpio",
+		.start = 39,
+		.end = 39,
+		.flags = IORESOURCE_IO,
+	},
+};
+
+static struct platform_device hall_sensor_device = {
+	.name = "hall_sensor",
+	.id = -1,
+	.num_resources = ARRAY_SIZE(hall_sensor_resources),
+	.resource = hall_sensor_resources,
+};
+#endif
+//ASUS_BSP lenter ---
 
 static void __init msm8960_tsens_init(void)
 {
@@ -3232,6 +4451,7 @@ static void __init msm8960_cdp_init(void)
 		pr_err("Failed to initialize XO votes\n");
 	configure_msm8960_power_grid();
 	platform_device_register(&msm8960_device_rpm_regulator);
+	enable_rf_switch_regulator();
 	msm_clock_init(&msm8960_clock_init_data);
 	if (machine_is_msm8960_liquid())
 		msm_otg_pdata.mhl_enable = true;
@@ -3256,7 +4476,18 @@ static void __init msm8960_cdp_init(void)
 	if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) >= 2 &&
 					machine_is_msm8960_liquid())
 		msm_device_hsic_host.dev.parent = &smsc_hub_device.dev;
-	msm8960_init_gpiomux();
+
+	//+++ASUS_BSP : miniporting
+//asus bsp/larry lai : configure to a60k gpiomux
+	a60k_gpiomux_init();
+//	msm8960_init_gpiomux();
+	//---ASUS_BSP : miniporting
+//ASUS BSP TIM_SU++
+    if (g_A60K_hwID <=A60K_PR)
+        a60k_gpio_keys_init();
+    else if (g_A60K_hwID >=A66_HW_ID_SR1_1)
+        a66_gpio_keys_init();
+//ASUS BSP TIM_SU--
 	msm8960_device_qup_spi_gsbi1.dev.platform_data =
 				&msm8960_qup_spi_gsbi1_pdata;
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
@@ -3288,11 +4519,12 @@ static void __init msm8960_cdp_init(void)
 		platform_add_devices(msm8960_footswitch,
 				     msm8960_num_footswitch);
 	}
-	if (machine_is_msm8960_liquid())
-		platform_device_register(&msm8960_device_ext_3p3v_vreg);
-	if (machine_is_msm8960_cdp())
-		platform_device_register(&msm8960_device_ext_l2_vreg);
-
+//++Ledger Yen
+// 	if (machine_is_msm8960_liquid())
+//		platform_device_register(&msm8960_device_ext_3p3v_vreg);
+// 	if (machine_is_msm8960_cdp())
+//		platform_device_register(&msm8960_device_ext_l2_vreg);
+//--Ledger Yen
 	if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE)
 		platform_device_register(&msm8960_device_uart_gsbi8);
 	else
@@ -3326,17 +4558,42 @@ static void __init msm8960_cdp_init(void)
 	platform_add_devices(cdp_devices, ARRAY_SIZE(cdp_devices));
 	msm8960_init_smsc_hub();
 	msm8960_init_hsic();
-#ifdef CONFIG_MSM_CAMERA
+//#ifdef CONFIG_MSM_CAMERA
 	msm8960_init_cam();
-#endif
+//#endif
 	msm8960_init_mmc();
+	//+++ASUS_BSP : miniporting
+	#if 0
 	if (machine_is_msm8960_liquid())
 		mxt_init_hw_liquid();
+	#endif
+	//---ASUS_BSP : miniporting
+		
+#ifdef CONFIG_MPU_SENSORS_MPU3050
+        msm8960_mpuirq_init();
+#endif
+
 	register_i2c_devices();
 	msm8960_init_fb();
 	slim_register_board_info(msm_slim_devices,
 		ARRAY_SIZE(msm_slim_devices));
 	msm8960_init_dsps();
+//ASUS_BSP +++
+#ifdef CONFIG_MAXIM_8934_CHARGER
+    determine_charger_device();
+#endif
+//ASUS_BSP ---
+
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+		determine_bat_device();
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
+#ifdef CONFIG_HALL_SENSOR
+	platform_device_register(&hall_sensor_device);
+#endif
+
 	BUG_ON(msm_pm_boot_init(&msm_pm_boot_pdata));
 	bt_power_init();
 	if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE) {

@@ -71,11 +71,13 @@ obj-$(CONFIG_MSM_MEMORY_LOW_POWER_MODE_SUSPEND_DEEP_POWER_DOWN) \
 obj-$(CONFIG_PMIC8058_XOADC) += pmic8058-xoadc.o
 obj-$(CONFIG_QSEECOM) += qseecom.o
 obj-$(CONFIG_QFP_FUSE) += qfp_fuse.o
+obj-$(CONFIG_HALL_SENSOR) += hall_sensor.o
+obj-$(CONFIG_MPU_SENSORS_MPU3050)	+= mpu3050/
+obj-$(CONFIG_MPU_SENSORS_MPU6050B1)	+= mpu6050/
 obj-y += tspdrv/
 obj-$(CONFIG_BU52031NVX) += pm8xxx-cradle.o
 obj-$(CONFIG_SLIMPORT_ANX7808)	+= slimport_anx7808/
 obj-$(CONFIG_LM3560_FLASHLED)	+= lm3560.o
-obj-$(CONFIG_SENSORS_MPU3050) += mpu3050/
 obj-$(CONFIG_NFC_PN544)		+= pn544.o
 obj-$(CONFIG_RAMDUMP_TAGS) += rdtags.o
 obj-$(CONFIG_LM3561)		+= lm3561.o

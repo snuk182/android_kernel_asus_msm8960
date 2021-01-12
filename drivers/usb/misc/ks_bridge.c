@@ -11,6 +11,7 @@
  * GNU General Public License for more details.
  */
 
+// snuk182 mb unneeded
 /* add additional information to our printk's */
 #define pr_fmt(fmt) "%s: " fmt "\n", __func__
 
@@ -57,6 +58,7 @@ struct data_pkt {
 	size_t			len;
 	struct list_head	list;
 	void			*ctxt;
+	int			pre_allocate; // ASUS_BSP+ "Pre allocate ks memory"
 };
 
 #define FILE_OPENED		BIT(0)
@@ -92,6 +94,7 @@ struct ks_bridge {
 	struct usb_anchor	submitted;
 
 	unsigned long		flags;
+	unsigned int		alloced_read_pkts;
 
 #define DBG_MSG_LEN   40
 #define DBG_MAX_MSG   500
@@ -125,11 +128,26 @@ dbg_log_event(struct ks_bridge *ksb, char *event, int d1, int d2)
 	ksb->dbg_idx = ksb->dbg_idx % DBG_MAX_MSG;
 	write_unlock_irqrestore(&ksb->dbg_lock, flags);
 }
+// ASUS_BSP+++ "Pre allocate ks memory"
+#define PRE_ALLOCATE_TX BIT(10)
+#define PRE_ALLOCATE_RX BIT(9)
+#define PRE_ALLOCATE_RX_MASK (PRE_ALLOCATE_RX - 1)
+#define MAX_KS_TX_BUFFER 0x100000
+#define NO_RX_BUFFER 50
+static DEFINE_SPINLOCK(pre_buffer_lock);
+
+static char *ks_tx_buffer = NULL;
+static bool is_ks_tx_buffer_used = false;
+static char *ks_rx_buffer[NO_RX_BUFFER];
+static bool is_ks_rx_buffer_used[NO_RX_BUFFER];
+
+#define ksb_alloc_data_pkt(count, flags, ctxt) _ksb_alloc_data_pkt(count, flags, ctxt, PRE_ALLOCATE_RX)
 
 static
-struct data_pkt *ksb_alloc_data_pkt(size_t count, gfp_t flags, void *ctxt)
+struct data_pkt *_ksb_alloc_data_pkt(size_t count, gfp_t flags, void *ctxt, int type)
 {
 	struct data_pkt *pkt;
+	unsigned long spin_flags = 0;
 
 	pkt = kzalloc(sizeof(struct data_pkt), flags);
 	if (!pkt) {
@@ -137,11 +155,44 @@ struct data_pkt *ksb_alloc_data_pkt(size_t count, gfp_t flags, void *ctxt)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	pkt->buf = kmalloc(count, flags);
+	if (PRE_ALLOCATE_TX == type) {
+		if (ks_tx_buffer && count > 4096 && count <= MAX_KS_TX_BUFFER) {
+			if (GFP_ATOMIC != flags)
+				spin_lock_irqsave(&pre_buffer_lock, spin_flags);
+			if (!is_ks_tx_buffer_used) {
+				is_ks_tx_buffer_used = true;
+				pkt->buf = ks_tx_buffer;
+				pkt->pre_allocate = PRE_ALLOCATE_TX;
+			}
+			if (GFP_ATOMIC != flags)
+				spin_unlock_irqrestore(&pre_buffer_lock, spin_flags);
+		}
+	}
+	else if (PRE_ALLOCATE_RX == type && count > 4096) {
+		int i;
+		if (GFP_ATOMIC != flags)
+			spin_lock_irqsave(&pre_buffer_lock, spin_flags);
+		for (i = 0; i < NO_RX_BUFFER; ++i) {
+			if (!is_ks_rx_buffer_used[i]) {
+				is_ks_rx_buffer_used[i] = true;
+				pkt->buf = ks_rx_buffer[i];
+				pkt->pre_allocate = (PRE_ALLOCATE_RX | i );
+				break;
+			}
+		}
+		if (GFP_ATOMIC != flags)
+			spin_unlock_irqrestore(&pre_buffer_lock, spin_flags);
+	}
+
 	if (!pkt->buf) {
-		pr_err("failed to allocate data buffer\n");
-		kfree(pkt);
-		return ERR_PTR(-ENOMEM);
+		pkt->buf = kmalloc(count, flags);
+		if (!pkt->buf) {
+			pr_err("failed to allocate data buffer\n");
+			kfree(pkt);
+			return ERR_PTR(-ENOMEM);
+		}
+		if (count > 4096)
+			pr_info("alloc by kmalloc");
 	}
 
 	pkt->len = count;
@@ -150,10 +201,32 @@ struct data_pkt *ksb_alloc_data_pkt(size_t count, gfp_t flags, void *ctxt)
 
 	return pkt;
 }
+// ASUS_BSP--- "Pre allocate ks memory"
 
-static void ksb_free_data_pkt(struct data_pkt *pkt)
+#define ksb_free_data_pkt(pkt) _ksb_free_data_pkt(pkt, GFP_KERNEL)
+
+static void _ksb_free_data_pkt(struct data_pkt *pkt, gfp_t flags)
 {
-	kfree(pkt->buf);
+// ASUS_BSP+++ "Pre allocate ks memory"
+	unsigned long spin_flags = 0;
+	if (GFP_ATOMIC != flags)
+		spin_lock_irqsave(&pre_buffer_lock, spin_flags);
+
+	if (pkt->pre_allocate == PRE_ALLOCATE_TX) {
+		is_ks_tx_buffer_used = false;
+		if (GFP_ATOMIC != flags)
+			spin_unlock_irqrestore(&pre_buffer_lock, spin_flags);
+	} else if (pkt->pre_allocate & PRE_ALLOCATE_RX) {
+		is_ks_rx_buffer_used[pkt->pre_allocate & PRE_ALLOCATE_RX_MASK] = false;
+		if (GFP_ATOMIC != flags)
+			spin_unlock_irqrestore(&pre_buffer_lock, spin_flags);
+	}
+	else {
+		if (GFP_ATOMIC != flags)
+			spin_unlock_irqrestore(&pre_buffer_lock, spin_flags);
+		kfree(pkt->buf);
+	}
+// ASUS_BSP--- "Pre allocate ks memory"
 	kfree(pkt);
 }
 
@@ -201,6 +274,7 @@ read_start:
 			dev_err(ksb->fs_dev.this_device,
 					"copy_to_user failed err:%d\n", ret);
 			ksb_free_data_pkt(pkt);
+			ksb->alloced_read_pkts--;
 			return -EFAULT;
 		}
 
@@ -217,6 +291,12 @@ read_start:
 			pkt->len = MAX_DATA_PKT_SIZE;
 			submit_one_urb(ksb, GFP_KERNEL, pkt);
 			pkt = NULL;
+// ASUS_BSP+++ "Pre allocate ks memory"
+			ksb->alloced_read_pkts--;
+			spin_unlock_irqrestore(&ksb->lock, flags);
+			ksb_free_data_pkt(pkt);
+			spin_lock_irqsave(&ksb->lock, flags);
+// ASUS_BSP--- "Pre allocate ks memory"
 		}
 		spin_lock_irqsave(&ksb->lock, flags);
 	}
@@ -225,8 +305,10 @@ read_start:
 	if (!space && pkt && pkt->n_read != pkt->len) {
 		if (test_bit(USB_DEV_CONNECTED, &ksb->flags))
 			list_add(&pkt->list, &ksb->to_ks_list);
-		else
+		else {
+			ksb->alloced_read_pkts--;
 			ksb_free_data_pkt(pkt);
+		}
 	}
 	spin_unlock_irqrestore(&ksb->lock, flags);
 
@@ -253,7 +335,7 @@ static void ksb_tx_cb(struct urb *urb)
 		pr_err_ratelimited("%s: urb failed with err:%d",
 				ksb->fs_dev.name, urb->status);
 
-	ksb_free_data_pkt(pkt);
+	_ksb_free_data_pkt(pkt, GFP_ATOMIC);
 
 	atomic_dec(&ksb->tx_pending_cnt);
 	wake_up(&ksb->pending_urb_wait);
@@ -331,7 +413,7 @@ static ssize_t ksb_fs_write(struct file *fp, const char __user *buf,
 	if (count > MAX_DATA_PKT_SIZE)
 		count = MAX_DATA_PKT_SIZE;
 
-	pkt = ksb_alloc_data_pkt(count, GFP_KERNEL, ksb);
+	pkt = _ksb_alloc_data_pkt(count, GFP_KERNEL, ksb, PRE_ALLOCATE_TX); // ASUS_BSP+ "Pre allocate ks memory"
 	if (IS_ERR(pkt)) {
 		dev_err(ksb->fs_dev.this_device,
 				"unable to allocate data packet");
@@ -458,9 +540,10 @@ submit_one_urb(struct ks_bridge *ksb, gfp_t flags, struct data_pkt *pkt)
 	urb = usb_alloc_urb(0, flags);
 	if (!urb) {
 		dev_err(&ksb->udev->dev, "unable to allocate urb");
-		ksb_free_data_pkt(pkt);
+		_ksb_free_data_pkt(pkt, GFP_ATOMIC);
 		return;
 	}
+	ksb->alloced_read_pkts++;
 
 	usb_fill_bulk_urb(urb, ksb->udev, ksb->in_pipe,
 			pkt->buf, pkt->len,
@@ -480,7 +563,8 @@ submit_one_urb(struct ks_bridge *ksb, gfp_t flags, struct data_pkt *pkt)
 		dev_err(&ksb->udev->dev, "in urb submission failed");
 		usb_unanchor_urb(urb);
 		usb_free_urb(urb);
-		ksb_free_data_pkt(pkt);
+		_ksb_free_data_pkt(pkt, GFP_ATOMIC);
+		ksb->alloced_read_pkts--;
 		atomic_dec(&ksb->rx_pending_cnt);
 		wake_up(&ksb->pending_urb_wait);
 		return;
@@ -518,12 +602,15 @@ static void ksb_rx_cb(struct urb *urb)
 			pr_err_ratelimited("%s: urb failed with err:%d",
 					ksb->fs_dev.name, urb->status);
 		if (urb->status != -EPROTO) {
-			ksb_free_data_pkt(pkt);
+			_ksb_free_data_pkt(pkt, GFP_ATOMIC);
+			ksb->alloced_read_pkts--;
 			goto done;
 		}
 	}
 
 	if (urb->actual_length == 0) {
+		_ksb_free_data_pkt(pkt, GFP_ATOMIC);
+		ksb->alloced_read_pkts--;
 		submit_one_urb(ksb, GFP_ATOMIC, pkt);
 		goto done;
 	}
@@ -577,6 +664,7 @@ static void ksb_start_rx_work(struct work_struct *w)
 			ksb_free_data_pkt(pkt);
 			break;
 		}
+		ksb->alloced_read_pkts++;
 
 		usb_fill_bulk_urb(urb, ksb->udev, ksb->in_pipe,
 				pkt->buf, pkt->len,
@@ -592,6 +680,7 @@ static void ksb_start_rx_work(struct work_struct *w)
 			usb_unanchor_urb(urb);
 			usb_free_urb(urb);
 			ksb_free_data_pkt(pkt);
+			ksb->alloced_read_pkts--;
 			atomic_dec(&ksb->rx_pending_cnt);
 			wake_up(&ksb->pending_urb_wait);
 			break;
@@ -726,6 +815,8 @@ static int ksb_usb_suspend(struct usb_interface *ifc, pm_message_t message)
 
 	dbg_log_event(ksb, "SUSPEND", 0, 0);
 
+	pr_info("read cnt: %d", ksb->alloced_read_pkts);
+
 	usb_kill_anchored_urbs(&ksb->submitted);
 
 	spin_lock_irqsave(&ksb->lock, flags);
@@ -785,13 +876,13 @@ static void ksb_usb_disconnect(struct usb_interface *ifc)
 		pkt = list_first_entry(&ksb->to_ks_list,
 				struct data_pkt, list);
 		list_del_init(&pkt->list);
-		ksb_free_data_pkt(pkt);
+		_ksb_free_data_pkt(pkt, GFP_ATOMIC);
 	}
 	while (!list_empty(&ksb->to_mdm_list)) {
 		pkt = list_first_entry(&ksb->to_mdm_list,
 				struct data_pkt, list);
 		list_del_init(&pkt->list);
-		ksb_free_data_pkt(pkt);
+		_ksb_free_data_pkt(pkt, GFP_ATOMIC);
 	}
 	spin_unlock_irqrestore(&ksb->lock, flags);
 
@@ -855,7 +946,14 @@ static int __init ksb_init(void)
 	dbg_dir = debugfs_create_dir("ks_bridge", NULL);
 	if (IS_ERR(dbg_dir))
 		pr_err("unable to create debug dir");
-
+// ASUS_BSP+++ "Pre allocate ks memory"
+	ks_tx_buffer = kzalloc(MAX_KS_TX_BUFFER, GFP_KERNEL);
+	is_ks_tx_buffer_used = false;
+	for (i = 0; i < NO_RX_BUFFER; ++i) {
+		ks_rx_buffer[i] = kzalloc(MAX_DATA_PKT_SIZE, GFP_KERNEL);
+	}
+	memset(is_ks_rx_buffer_used, 0, sizeof(is_ks_rx_buffer_used));
+// ASUS_BSP--- "Pre allocate ks memory"
 	for (i = 0; i < NO_BRIDGE_INSTANCES; i++) {
 		ksb = kzalloc(sizeof(struct ks_bridge), GFP_KERNEL);
 		if (!ksb) {
@@ -922,7 +1020,16 @@ dev_free:
 		kfree(ksb->name);
 		kfree(ksb);
 	}
-
+// ASUS_BSP+++ "Pre allocate ks memory"
+	if (ks_tx_buffer != NULL) {
+		kfree(ks_tx_buffer);
+		ks_tx_buffer = NULL;
+	}
+	for (i = 0; i < NO_RX_BUFFER; ++i) {
+		if (ks_rx_buffer[i])
+			kfree(ks_rx_buffer[i]);
+	}
+// ASUS_BSP--- "Pre allocate ks memory"
 	return ret;
 
 }
@@ -944,6 +1051,16 @@ static void __exit ksb_exit(void)
 		kfree(ksb->name);
 		kfree(ksb);
 	}
+// ASUS_BSP+++ "Pre allocate ks memory"
+	if (ks_tx_buffer != NULL) {
+		kfree(ks_tx_buffer);
+		ks_tx_buffer = NULL;
+	}
+	for (i = 0; i < NO_RX_BUFFER; ++i) {
+		if (ks_rx_buffer[i])
+			kfree(ks_rx_buffer[i]);
+	}
+// ASUS_BSP--- "Pre allocate ks memory"
 }
 
 module_init(ksb_init);

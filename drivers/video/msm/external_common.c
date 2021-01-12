@@ -191,7 +191,11 @@ struct msm_hdmi_mode_timing_info
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_720x480p240_16_9),
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1440x480i240_4_3),
 	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1440x480i240_16_9),
-	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1280x1024p60_5_4)
+	VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1280x1024p60_5_4),
+// ASUS_BSP +++ Tingyi "[A80][MyDP] Support Pad resolution"
+    VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1280x800p60_16_10),
+    VFRMT_NOT_SUPPORTED(HDMI_VFRMT_1920x1200p60_16_10),
+// ASUS_BSP --- Tingyi "[A80][MyDP] Support Pad resolution"
 };
 EXPORT_SYMBOL(hdmi_mhl_supported_video_mode_lut);
 
@@ -1213,6 +1217,12 @@ static struct hdmi_edid_video_mode_property_type
 	{HDMI_VFRMT_1280x1024p60_5_4, 1280, 1024, FALSE, 1688, 408, 1066, 42,
 	 63981, 60020, 108000, 60000, FALSE},
 
+// ASUS_BSP +++ Tingyi "[A80][MyDP] Support Pad resolution"
+    {HDMI_VFRMT_1280x800p60_16_10, 1280, 800, FALSE, 1440, 160, 823, 23,
+    45000, 60000, 74250, 60000, FALSE},
+    {HDMI_VFRMT_1920x1200p60_16_10, 1920, 1200, FALSE, 2000, 80, 1235, 35,
+    74000, 60000, 148500, 60000, FALSE},
+// ASUS_BSP --- Tingyi "[A80][MyDP] Support Pad resolution"
 	/* All 1440 H Active */
 	{HDMI_VFRMT_1440x576i50_4_3, 1440, 576, TRUE,  1728, 288, 625, 24,
 	 15625, 50000, 27000, 50000, TRUE},
@@ -2188,6 +2198,10 @@ static boolean check_edid_header(const uint8 *edid_buf)
 		&& (edid_buf[4] == 0xff) && (edid_buf[5] == 0xff)
 		&& (edid_buf[6] == 0xff) && (edid_buf[7] == 0x00);
 }
+#define ASUS_P01_NO_EDID_EEPROM
+#ifdef ASUS_P01_NO_EDID_EEPROM
+extern bool g_p01State;
+#endif
 
 int hdmi_common_read_edid(void)
 {
@@ -2215,6 +2229,10 @@ int hdmi_common_read_edid(void)
 	external_common_state->adb_size = 0;
 	external_common_state->sadb_size = 0;
 
+#ifdef ASUS_P01_NO_EDID_EEPROM
+    if (!g_p01State)
+    {
+#endif
 	status = hdmi_common_read_edid_block(0, edid_buf);
 	if (status || !check_edid_header(edid_buf)) {
 		if (!status)
@@ -2312,7 +2330,58 @@ int hdmi_common_read_edid(void)
 
 	hdmi_edid_get_display_mode(edid_buf,
 		&external_common_state->disp_mode_list, num_og_cea_blocks);
+#ifdef ASUS_P01_NO_EDID_EEPROM
+    }//if (!g_p01State)
+    else
+    {
+        add_supported_video_format(&external_common_state->disp_mode_list,HDMI_VFRMT_1280x800p60_16_10);
+        external_common_state->hdmi_sink = TRUE;
+    }
+#else
+//Mickey+++ get detailed timing here
+#ifndef ASUS_HDMI_FORCE_1280x800
+#define DETAILED_TIMING_DESCRIPTIONS_START  0x36
+#define DETAILED_TIMING_DESCRIPTION_SIZE    18
 
+#define UPPER_NIBBLE( x ) (((128|64|32|16) & (x)) >> 4)
+#define COMBINE_HI_8LO( hi, lo ) ( (((unsigned)hi) << 8) | (unsigned)lo )
+#define H_ACTIVE_LO        (unsigned)block[ 2 ]
+#define H_ACTIVE_HI        UPPER_NIBBLE( (unsigned)block[ 4 ] )
+#define H_ACTIVE           COMBINE_HI_8LO( H_ACTIVE_HI, H_ACTIVE_LO )
+
+#define V_ACTIVE_LO        (unsigned)block[ 5 ]
+#define V_ACTIVE_HI        UPPER_NIBBLE( (unsigned)block[ 7 ] )
+#define V_ACTIVE           COMBINE_HI_8LO( V_ACTIVE_HI, V_ACTIVE_LO )
+{
+    int i;
+    uint8 *block;
+    block = edid_buf + DETAILED_TIMING_DESCRIPTIONS_START;
+
+    for (i = 0; i < 4; i++, block+= DETAILED_TIMING_DESCRIPTION_SIZE) {
+        if (!(block[0] == 0x00 && block[1] == 0x00)) {
+            if (H_ACTIVE==1280 && V_ACTIVE==800)
+            {
+#endif
+                add_supported_video_format(&external_common_state->disp_mode_list,HDMI_VFRMT_1280x800p60_16_10);
+#ifndef ASUS_HDMI_FORCE_1280x800
+                break;
+            }
+        }
+    }
+}
+#endif
+#endif /*ASUS_P01_NO_EDID_EEPROM*/
+#if 0 //for debug only
+{
+    int i=0;
+    printk("Mickey::output mode list\n");
+    for (i=0;i<external_common_state->disp_mode_list.num_of_elements;i++)
+    {
+        printk("Mickey::%d\n",external_common_state->disp_mode_list.disp_mode_list[i]);
+    }
+}
+#endif
+//Mickey---
 	return 0;
 
 error:
@@ -2355,8 +2424,12 @@ bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd)
 				format = HDMI_VFRMT_1280x1024p60_5_4;
 			else if (mfd->var_frame_rate == 50)
 				format = HDMI_VFRMT_1280x720p50_16_9;
-			else
-				format = HDMI_VFRMT_1280x720p60_16_9;
+            //Mickey+++
+            else if (mfd->var_yres == 800)
+                format = HDMI_VFRMT_1280x800p60_16_10;
+            else
+                format = HDMI_VFRMT_1280x720p60_16_9;
+            //Mickey---
 			break;
 		case 1440:
 			format = (mfd->var_yres == 240) /* interlaced has half
@@ -2472,7 +2545,7 @@ void hdmi_common_init_panel_info(struct msm_panel_info *pinfo)
 	/* blk */
 	pinfo->lcdc.border_clr = 0;
 	/* blue */
-	pinfo->lcdc.underflow_clr = 0xff;
+	pinfo->lcdc.underflow_clr = 0x0; //Mickey+++ change underflow color to black
 	pinfo->lcdc.hsync_skew = 0;
 }
 EXPORT_SYMBOL(hdmi_common_init_panel_info);

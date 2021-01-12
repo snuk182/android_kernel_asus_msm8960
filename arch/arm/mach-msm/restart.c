@@ -36,7 +36,8 @@
 #include <mach/scm.h>
 #include "msm_watchdog.h"
 #include "timer.h"
-
+#include <linux/asus_global.h>
+#include <asm/cacheflush.h>
 #define WDT0_RST	0x38
 #define WDT0_EN		0x40
 #define WDT0_BARK_TIME	0x4C
@@ -61,9 +62,11 @@ static void *dload_mode_addr;
 
 /* Download mode master kill-switch */
 static int dload_set(const char *val, struct kernel_param *kp);
-static int download_mode;
+static int download_mode = 1;
 module_param_call(download_mode, dload_set, param_get_int,
 			&download_mode, 0644);
+
+extern struct _asus_global asus_global;
 
 extern void arm_machine_flush_console(void);
 #include <asm/proc-fns.h>
@@ -98,7 +101,7 @@ static struct notifier_block panic_blk = {
 	.notifier_call	= panic_prep_restart,
 };
 
-static void set_dload_mode(int on)
+void set_dload_mode(int on)
 {
 	if (dload_mode_addr) {
 		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
@@ -154,8 +157,43 @@ static void __msm_power_off(int lower_pshold)
 	return;
 }
 
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+extern int g_chg_present;
+extern char g_CHG_mode;
+extern int getPowerBankCharge(void);
+extern int getBalanceCharge(void);
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+
 static void msm_power_off(void)
 {
+	printk(KERN_CRIT "Clean asus_global...\n");
+	memset(&asus_global,0,sizeof(asus_global));	
+	printk(KERN_CRIT "&asus_global = 0x%x\n",(unsigned int)&asus_global);
+	printk(KERN_CRIT "asus_global.asus_global_magic = 0x%x\n",asus_global.asus_global_magic);
+	printk(KERN_CRIT "asus_global.ramdump_enable_magic = 0x%x\n",asus_global.ramdump_enable_magic);
+	__raw_writel(0, MSM_IMEM_BASE + RESTART_REASON_ADDR);
+	flush_cache_all();	
+//+++ ASUS_BSP Allen1_Huang: enable ICS charger mode
+#ifdef CONFIG_CHARGER_MODE
+
+// Enter_Zhang+++: Fix poweroff failture in ASUS_FACTORY_BUILD
+#ifndef ASUS_FACTORY_BUILD
+// Enter_Zhang---: Fix poweroff failture in ASUS_FACTORY_BUILD
+	if ( g_chg_present && getPowerBankCharge() && getBalanceCharge() ){ //if charger present, we should reboot to kernel charging mode instead of turning off
+		if (!g_CHG_mode) //don't send oem-01 in charging mode
+			msm_restart(0,"oem-01");
+		//__raw_writel(0x6f656d01, restart_reason);
+	}
+
+// Enter_Zhang+++: Fix poweroff failture in ASUS_FACTORY_BUILD
+#endif
+// Enter_Zhang---: Fix poweroff failture in ASUS_FACTORY_BUILD
+
+#endif
+//--- ASUS_BSP Allen1_Huang: enable ICS charger mode
+
 	/* MSM initiated power off, lower ps_hold */
 	__msm_power_off(1);
 }
@@ -224,6 +262,12 @@ void msm_restart(char mode, const char *cmd)
 
 	printk(KERN_NOTICE "Going down for restart now\n");
 
+	{ // jack added to get correct time for last shutdown log +++++++++++
+            void get_last_shutdown_log(void);
+            get_last_shutdown_log();       
+
+        }// jack added to get correct time for last shutdown log ------------
+
 	pm8xxx_reset_pwr_off(1);
 
 	if (cmd != NULL) {
@@ -267,6 +311,24 @@ void msm_restart(char mode, const char *cmd)
 
 	mdelay(10000);
 	printk(KERN_ERR "Restarting has failed\n");
+}
+void resetdevice(void)
+{
+	__raw_writel(0, msm_tmr0_base + WDT0_EN);
+	if (!(machine_is_msm8x60_fusion() || machine_is_msm8x60_fusn_ffa())) {
+		mb();
+		__raw_writel(0, PSHOLD_CTL_SU); /* Actually reset the chip */
+		mdelay(5000);
+		pr_notice("PS_HOLD didn't work, falling back to watchdog\n");
+	}
+	
+	__raw_writel(1, msm_tmr0_base + WDT0_RST);
+	__raw_writel(5*0x31F3, msm_tmr0_base + WDT0_BARK_TIME);
+	__raw_writel(0x31F3, msm_tmr0_base + WDT0_BITE_TIME);
+	__raw_writel(1, msm_tmr0_base + WDT0_EN);
+
+	mdelay(10000);
+	printk(KERN_ERR "Restarting has failed\n");	
 }
 
 static int __init msm_pmic_restart_init(void)

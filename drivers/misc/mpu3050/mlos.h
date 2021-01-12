@@ -1,6 +1,6 @@
 /*
  $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
+    Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,17 +20,21 @@
 #ifndef _MLOS_H
 #define _MLOS_H
 
+#ifndef __KERNEL__
+#include <stdio.h>
+#endif
+
 #include "mltypes.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ------------ */
-/* - Defines. - */
-/* ------------ */
+	/* ------------ */
+	/* - Defines. - */
+	/* ------------ */
 
-/* - MLOSCreateFile defines. - */
+	/* - MLOSCreateFile defines. - */
 
 #define MLOS_GENERIC_READ         ((unsigned int)0x80000000)
 #define MLOS_GENERIC_WRITE        ((unsigned int)0x40000000)
@@ -38,30 +42,30 @@ extern "C" {
 #define MLOS_FILE_SHARE_WRITE     ((unsigned int)0x00000002)
 #define MLOS_OPEN_EXISTING        ((unsigned int)0x00000003)
 
-/* ---------- */
-/* - Enums. - */
-/* ---------- */
+	/* ---------- */
+	/* - Enums. - */
+	/* ---------- */
 
-/* --------------- */
-/* - Structures. - */
-/* --------------- */
+	/* --------------- */
+	/* - Structures. - */
+	/* --------------- */
 
-/* --------------------- */
-/* - Function p-types. - */
-/* --------------------- */
+	/* --------------------- */
+	/* - Function p-types. - */
+	/* --------------------- */
 
-void *MLOSMalloc(unsigned int numBytes);
-unchar MLOSFree(void *ptr);
-unchar MLOSCreateMutex(uint *mutex);
-unchar MLOSLockMutex(uint mutex);
-unchar MLOSUnlockMutex(uint mutex);
-uint *MLOSFOpen(char *filename);
-void MLOSFClose(uint *fp);
+	void *inv_malloc(unsigned int numBytes);
+	inv_error_t inv_free(void *ptr);
+	inv_error_t inv_create_mutex(HANDLE *mutex);
+	inv_error_t inv_lock_mutex(HANDLE mutex);
+	inv_error_t inv_unlock_mutex(HANDLE mutex);
+	FILE *inv_fopen(char *filename);
+	void inv_fclose(FILE *fp);
 
-unchar MLOSDestroyMutex(uint handle);
+	inv_error_t inv_destroy_mutex(HANDLE handle);
 
-void MLOSSleep(int mSecs);
-unsigned long MLOSGetTickCount(void);
+	void inv_sleep(int mSecs);
+	unsigned long inv_get_tick_count(void);
 
 #ifdef __cplusplus
 }

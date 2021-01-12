@@ -54,6 +54,9 @@ enum usb_mode_type {
 	USB_PERIPHERAL,
 	USB_HOST,
 	USB_OTG,
+	//ASUS_BSP+++ BennyCheng "add microp notification & padstation hub power control"
+	USB_AUTO,
+	//ASUS_BSP--- BennyCheng "add microp notification & padstation hub power control"
 };
 
 /**
@@ -372,6 +375,9 @@ struct msm_otg {
 	u8 active_tmout;
 	struct hrtimer timer;
 	enum usb_vdd_type vdd_type;
+	//ASUS_BSP+++ BennyCheng "add microp notification & padstation hub power control"
+	enum usb_mode_type otg_mode;
+	//ASUS_BSP--- BennyCheng "add microp notification & padstation hub power control"
 };
 
 struct msm_hsic_host_platform_data {

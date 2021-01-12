@@ -163,6 +163,21 @@ struct msm_sensor_fn_t {
 	int32_t (*sensor_read_eeprom)(struct msm_sensor_ctrl_t *);
 	int32_t (*sensor_hdr_update)(struct msm_sensor_ctrl_t *,
 		 struct sensor_hdr_update_parm_t *);
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	void (*sensor_isp_af_start) (bool, isp3a_af_mode_t, int16_t, int16_t, int16_t, int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+	uint16_t (*sensor_get_isp_af_result) (struct msm_sensor_ctrl_t *);
+	void (*sensor_set_isp_led_mode) (led_mode_t);	//ASUS_BSP LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+	void (*sensor_set_isp_effect_mode) (int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Effect mode in 8M camera with ISP"	
+	void (*sensor_set_isp_wb_mode) (config3a_wb_t);  //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"	
+	void (*sensor_set_isp_ev_mode) (int16_t);  //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement EV mode in 8M camera with ISP"
+	void (*sensor_set_isp_scene_mode) (camera_bestshot_mode_type);  //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Sence mode in 8M camera with ISP"
+	void (*sensor_set_isp_caf_mode) (int16_t);  //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement CAF mode in 8M camera with ISP"
+	void (*sensor_set_isp_aeclock_mode) (int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AEC Lock mode in 8M camera with ISP"
+	void (*sensor_set_isp_awblock_mode) (int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AWB Lock mode in 8M camera with ISP"
+	void (*sensor_set_isp_iso_mode) (int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+	void (*sensor_set_isp_flicker_mode) (int16_t); //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Flicker mode in 8M camera with ISP"
+	void (*sensor_get_isp_exif) (struct exif_cfg *);	//ASUS_BSP Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 };
 
 struct msm_sensor_csi_info {
@@ -205,11 +220,18 @@ struct msm_sensor_ctrl_t {
 	uint16_t curr_frame_length_lines;
 
 	uint32_t fps_divider;
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	enum msm_sensor_resolution_t prev_res;
+	enum msm_sensor_resolution_t pict_res;
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	enum msm_sensor_resolution_t curr_res;
 	enum msm_sensor_cam_mode_t cam_mode;
 
 	struct mutex *msm_sensor_mutex;
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	uint16_t config_csi_flag;
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	struct v4l2_subdev sensor_v4l2_subdev;
 	struct v4l2_subdev_info *sensor_v4l2_subdev_info;
 	uint8_t sensor_v4l2_subdev_info_size;

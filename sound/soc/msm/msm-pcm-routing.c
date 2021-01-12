@@ -31,6 +31,13 @@
 #include "msm-pcm-routing.h"
 #include "qdsp6/q6voice.h"
 
+//Bruno++ for P01
+#ifdef CONFIG_EEPROM_NUVOTON
+#include <linux/microp_api.h>
+#include <linux/microp_pin_def.h>
+#endif
+//Bruno++ for P01
+
 struct msm_pcm_routing_bdai_data {
 	u16 port_id; /* AFE port ID */
 	u8 active; /* track if this backend is enabled */
@@ -239,6 +246,84 @@ static uint8_t is_be_dai_extproc(int be_dai)
 	else
 		return 0;
 }
+
+//Bruno++ for P01
+#ifdef CONFIG_EEPROM_NUVOTON
+static int P01_SPK_control;
+static int P01_HS_control;
+static int P01_HP_control;
+static const char *p01_function[] = {"Off", "On"};
+static const struct soc_enum p01_enum[] = {
+    SOC_ENUM_SINGLE_EXT(2, p01_function),
+    SOC_ENUM_SINGLE_EXT(2, p01_function),
+    SOC_ENUM_SINGLE_EXT(2, p01_function),
+};
+static int P01_get_spk(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s: P01_SPK_control = %d", __func__, P01_SPK_control);
+    ucontrol->value.integer.value[0] = P01_SPK_control;
+    return 0;
+}
+
+static int P01_set_spk(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s()\n", __func__);
+    if (P01_SPK_control == ucontrol->value.integer.value[0])
+        return 0;
+
+    P01_SPK_control = ucontrol->value.integer.value[0];
+    if (P01_SPK_control)    {
+        AX_MicroP_setGPIOOutputPin(OUT_uP_SPK_EN, 1);
+    } else {
+        AX_MicroP_setGPIOOutputPin(OUT_uP_SPK_EN, 0);
+    }
+    
+    return 1;
+}
+
+static int P01_get_hs(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s: P01_HS_control = %d", __func__, P01_HS_control);
+    ucontrol->value.integer.value[0] = P01_HS_control;
+    return 0;
+}
+
+static int P01_set_hs(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s()\n", __func__);
+    if (P01_HS_control == ucontrol->value.integer.value[0])
+        return 0;
+
+    P01_HS_control = ucontrol->value.integer.value[0];
+    if (P01_HS_control)    {
+        AX_MicroP_setGPIOOutputPin(OUT_uP_HP_MIC_SEL, 1);
+    } else {
+        AX_MicroP_setGPIOOutputPin(OUT_uP_HP_MIC_SEL, 0);
+    }
+    
+    return 1;
+}
+
+static int P01_get_hp(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s: P01_HP_control = %d", __func__, P01_HP_control);
+    ucontrol->value.integer.value[0] = P01_HP_control;
+    return 0;
+}
+
+static int P01_set_hp(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+    printk("%s()\n", __func__);
+    if (P01_HP_control == ucontrol->value.integer.value[0])
+        return 0;
+
+    P01_HP_control = ucontrol->value.integer.value[0];
+    
+    return 1;
+}
+#endif
+//Bruno++ for P01
+
 
 static void msm_pcm_routing_build_matrix(int fedai_id, int dspst_id,
 	int path_type)
@@ -2298,6 +2383,16 @@ static const struct snd_kcontrol_new eq_coeff_mixer_controls[] = {
 	msm_routing_put_eq_band_audio_mixer),
 };
 
+//Bruno++
+#ifdef CONFIG_EEPROM_NUVOTON
+static const struct snd_kcontrol_new P01_controls[] = {
+    SOC_ENUM_EXT("P01 Speaker",     p01_enum[0], P01_get_spk,   P01_set_spk),
+    SOC_ENUM_EXT("P01 Headset",     p01_enum[1], P01_get_hs,    P01_set_hs),
+    SOC_ENUM_EXT("P01 HeadPhone",   p01_enum[2], P01_get_hp,    P01_set_hp),    
+};
+#endif
+//Bruno++
+
 static const struct snd_soc_dapm_widget msm_qdsp6_widgets[] = {
 	/* Frontend AIF */
 	/* Widget name equals to Front-End DAI name<Need confirmation>,
@@ -3100,6 +3195,13 @@ static int msm_routing_probe(struct snd_soc_platform *platform)
 	snd_soc_add_platform_controls(platform,
 				ec_ref_rx_mixer_controls,
 			ARRAY_SIZE(ec_ref_rx_mixer_controls));
+
+//Bruno++
+#ifdef CONFIG_EEPROM_NUVOTON
+    snd_soc_add_platform_controls(platform, P01_controls, ARRAY_SIZE(P01_controls));
+#endif
+//Bruno++
+
 	return 0;
 }
 
@@ -3123,10 +3225,36 @@ static int msm_routing_pcm_remove(struct platform_device *pdev)
 	return 0;
 }
 
+#ifdef CONFIG_PM
+static int msm_routing_pcm_suspend(struct device *dev)
+{
+    dev_dbg(dev, "%s: system suspend\n", __func__);
+    if (P01_SPK_control) {
+        P01_SPK_control = 0;
+        AX_MicroP_setGPIOOutputPin(OUT_uP_SPK_EN, 0);
+    }
+    return 0;
+}
+
+static int msm_routing_pcm_resume(struct device *dev)
+{
+    dev_dbg(dev, "%s: system resume\n", __func__);
+    return 0;
+}
+
+static const struct dev_pm_ops msm_routing_pcm_pm_ops = {
+    .suspend    = msm_routing_pcm_suspend,
+    .resume     = msm_routing_pcm_resume,
+};
+#endif
+
 static struct platform_driver msm_routing_pcm_driver = {
 	.driver = {
 		.name = "msm-pcm-routing",
 		.owner = THIS_MODULE,
+#ifdef CONFIG_PM
+        .pm = &msm_routing_pcm_pm_ops,
+#endif
 	},
 	.probe = msm_routing_pcm_probe,
 	.remove = __devexit_p(msm_routing_pcm_remove),

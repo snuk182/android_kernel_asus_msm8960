@@ -90,7 +90,19 @@
 #ifndef SET_TSC_CTL
 # define SET_TSC_CTL(a)		(-EINVAL)
 #endif
-
+#ifdef CONFIG_CHARGER_MODE
+#include <linux/microp_api.h>
+#include <linux/microp_pin_def.h>
+#include <linux/microp.h>
+#include <linux/delay.h>
+extern char g_CHG_mode;
+extern void TriggerPadStationPowerOff(void);
+extern int getPowerBankCharge(void);
+extern int getBalanceCharge(void);
+extern int scaler_set_waiting_icon(int set);
+extern int uP_nuvoton_write_reg(int cmd, void *data);
+extern unsigned int g_b_isP01Connected;
+#endif
 /*
  * this is where the system-wide overflow UID and GID are defined, for
  * architectures that now have 32-bit UID/GID but didn't in the past
@@ -397,6 +409,25 @@ void kernel_restart(char *cmd)
 		printk(KERN_EMERG "Restarting system.\n");
 	else
 		printk(KERN_EMERG "Restarting system with command '%s'.\n", cmd);
+
+#ifdef CONFIG_CHARGER_MODE
+	if( g_CHG_mode )
+	{
+		printk("%s: Charging mode: toggle 3V3 on Padstation before reboot\n", __func__);
+//+++ASUS_BSP Peter_lu : for set charging current to 1A.........................................
+		AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_RST, 0);
+              AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 0);
+//+++ASUS_BSP Peter_lu : for set charging current to 1A.........................................
+		AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 1);
+		mdelay(200); //to quarantee timing issue, use cpu-busy waiting is better
+		AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 0);
+//+++ASUS_BSP Peter_lu : for set charging current to 1A.........................................
+		mdelay(1);
+		AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 0);
+//+++ASUS_BSP Peter_lu : for set charging current to 1A.........................................
+	}
+#endif
+	
 	kmsg_dump(KMSG_DUMP_RESTART);
 	machine_restart(cmd);
 }
@@ -438,6 +469,24 @@ void kernel_power_off(void)
 	if (pm_power_off_prepare)
 		pm_power_off_prepare();
 	migrate_to_reboot_cpu();
+    
+//ASUS_BSP+++ victor: to move the following code here just after disable user mode help and cpu1 to prevent power off fail...
+//TODO, our customization should register pm_power_off_prepare above...
+#ifdef CONFIG_CHARGER_MODE
+    if(1==g_b_isP01Connected) { //st_CONNECTED
+        scaler_set_waiting_icon(0); //carol+, to prevent P02 waiting icon show up when reboot into charging mode.
+        if (!getPowerBankCharge()) //PowerBank mode stop charging
+            AX_MicroP_setGPIOOutputPin(OUT_uP_VBUS_EN, 0); //Turn off vbus
+        if (!getBalanceCharge()) //vbus should already off in balance mode, but do again for safety)
+            AX_MicroP_setGPIOOutputPin(OUT_uP_VBUS_EN, 0); //Turn off vbus
+        if (!getBalanceCharge() || !getPowerBankCharge() || g_CHG_mode) {
+            unsigned short off=0xAA;
+            uP_nuvoton_write_reg(MICROP_SOFTWARE_OFF,  &off);
+        }
+    }
+#endif
+//ASUS_BSP---
+
 	syscore_shutdown();
 	printk(KERN_EMERG "Power down.\n");
 	kmsg_dump(KMSG_DUMP_POWEROFF);

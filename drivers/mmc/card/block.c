@@ -65,7 +65,10 @@ MODULE_ALIAS("mmc:block");
 
 #define mmc_req_rel_wr(req)	(((req->cmd_flags & REQ_FUA) || \
 			(req->cmd_flags & REQ_META)) && \
-			(rq_data_dir(req) == WRITE))
+			(rq_data_dir(req) == WRITE))&& \
+			!(card->fua_forbidden) 		/* ASUS_BSP+++: Fix eMMC halt in Reliable Write */
+
+
 #define PACKED_CMD_VER		0x01
 #define PACKED_CMD_WR		0x02
 #define PACKED_TRIGGER_MAX_ELEMENTS	5000
@@ -1746,7 +1749,10 @@ static void mmc_blk_rw_rq_prep(struct mmc_queue_req *mqrq,
 	bool do_rel_wr = ((req->cmd_flags & REQ_FUA) ||
 			  (req->cmd_flags & REQ_META)) &&
 		(rq_data_dir(req) == WRITE) &&
-		(md->flags & MMC_BLK_REL_WR);
+		(md->flags & MMC_BLK_REL_WR) &&
+		/* ASUS_BSP+++: Fix eMMC halt in Reliable Write */
+		!(card->fua_forbidden);
+		/* ASUS_BSP---: Fix eMMC halt in Reliable Write */
 
 	memset(brq, 0, sizeof(struct mmc_blk_request));
 	brq->mrq.cmd = &brq->cmd;
@@ -3278,6 +3284,8 @@ static int __init mmc_blk_init(void)
 	if (res)
 		goto out2;
 
+	InitPreAllocSg();
+	
 	return 0;
  out2:
 	unregister_blkdev(MMC_BLOCK_MAJOR, "mmc");
@@ -3289,6 +3297,7 @@ static void __exit mmc_blk_exit(void)
 {
 	mmc_unregister_driver(&mmc_driver);
 	unregister_blkdev(MMC_BLOCK_MAJOR, "mmc");
+	DeInitPreAllocSg();
 }
 
 module_init(mmc_blk_init);

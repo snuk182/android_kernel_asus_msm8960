@@ -21,6 +21,8 @@
 #include <linux/smpboot.h>
 #include <linux/atomic.h>
 
+#include <linux/atomic.h>
+extern void *scm_regsave;
 /*
  * Structure to determine completion condition and record errors.  May
  * be shared by works on different cpus.
@@ -400,6 +402,10 @@ static void ack_state(struct stop_machine_data *smdata)
 		set_state(smdata, smdata->state + 1);
 }
 
+// ASUS_BSP +++ Tingyi "[A66][Dock] Prevent watchdog timeout when insert dock int sleep state"
+extern void pet_watchdog(void);
+// ASUS_BSP --- Tingyi "[A66][Dock] Prevent watchdog timeout when insert dock int sleep state"
+
 /* This is the cpu_stop function which stops the CPU. */
 static int stop_machine_cpu_stop(void *data)
 {
@@ -408,6 +414,13 @@ static int stop_machine_cpu_stop(void *data)
 	int cpu = smp_processor_id(), err = 0;
 	unsigned long flags;
 	bool is_active;
+	int wait_count = 0;
+	int pet_count = 0;
+
+	if((cpu == 0)&&(scm_regsave != NULL))
+	{
+		pet_watchdog();
+	} 
 
 	/*
 	 * When called from stop_machine_from_inactive_cpu(), irq might
@@ -440,9 +453,21 @@ static int stop_machine_cpu_stop(void *data)
 			}
 			ack_state(smdata);
 		}
+// ASUS_BSP +++ Tingyi "[A66][Dock] Prevent watchdog timeout when insert dock int sleep state"		
+		wait_count++;
+		if (((wait_count % 100000) == 0) &&
+			(cpu == 0)&&(scm_regsave != NULL))
+		{
+			if ( pet_count < 1000 )
+			{
+				pet_watchdog();
+				pet_count++;
+			}
+		}
 	} while (curstate != STOPMACHINE_EXIT);
 
 	local_irq_restore(flags);
+// ASUS_BSP --- Tingyi "[A66][Dock] Prevent watchdog timeout when insert dock int sleep state"	
 	return err;
 }
 

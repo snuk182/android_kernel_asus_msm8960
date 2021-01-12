@@ -600,6 +600,21 @@ config LEDS_TRIGGER_SLEEP
 	help
 	  This turns LEDs on when the screen is off but the cpu still running.
 
+config A60K_BACKLIGHT
+	tristate "Enable backlight driver"
+	help
+	  According to PMIC trigger backlight driver.
+
+config P02_BACKLIGHT
+	tristate "Enable p02 acklight driver"
+	help
+	  According to i2c trigger p02 backlight driver.
+
+config P02_SCALER_UPDATE
+	tristate "Enable p02 scaler_update driver"
+	help
+	  According to i2c trigger p02 scaler_update driver.
+
 comment "iptables trigger is under Netfilter config (LED target)"
 	depends on LEDS_TRIGGERS
 

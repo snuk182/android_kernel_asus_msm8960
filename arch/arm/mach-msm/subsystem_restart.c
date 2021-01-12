@@ -36,7 +36,37 @@
 #include <mach/subsystem_restart.h>
 
 #include "smd_private.h"
+//thomas_chu +++
+#include <linux/asus_global.h>
+#include <asm/cacheflush.h>
+extern struct _asus_global asus_global;
 
+#define SUB_MODEM_BIT 0x01;
+#define SUB_RIVA_BIT 0x02;
+
+static const char *subsystem_name[] = {
+	"modem",
+	"riva"
+};
+static int sub_mask = 3;
+module_param(sub_mask, int, S_IRUGO | S_IWUSR);
+
+static bool is_subsystem_restart_enable(const char *sub_sys)
+{
+	bool res = false;
+	int i;
+	for (i = 0; i < sizeof(subsystem_name) / sizeof(subsystem_name[0]); ++i)
+	{
+		if ( sub_mask & (0x01 << i) ) {
+			if (0 == strcmp(subsystem_name[i], sub_sys)) {
+				res = true;
+				break;
+			}
+		}
+	}
+	return res;
+}
+//thomas_chu ---
 struct subsys_soc_restart_order {
 	const char * const *subsystem_list;
 	int count;
@@ -127,6 +157,41 @@ static struct subsys_soc_restart_order restart_orders_8960_fusion_sglte = {
 static struct subsys_soc_restart_order *restart_orders_8960_sglte[] = {
 	&restart_orders_8960_fusion_sglte,
 	};
+
+// jack for modem ramdump capture +++++
+#include <linux/wakelock.h>
+static void subsystem_restart_fn(struct work_struct *work);
+static DECLARE_WORK(subsystem_restart_work, subsystem_restart_fn);
+static int warning_count = 20;
+extern void pet_watchdog(void);
+
+static void save_ram_dump(void)
+{
+    pet_watchdog();
+    printk_lcd("save_ram_dump done\n");
+}
+
+static void subsystem_save_logs(void)
+{
+    save_ram_dump();
+    save_phone_hang_log();
+    printk("Saving slow down log done\r\n"); 
+}
+
+static void subsystem_restart_fn(struct work_struct *work)
+{
+ 
+    if(warning_count == 20)
+        subsystem_save_logs();
+    
+    if(warning_count--)
+    {
+        schedule_work(&subsystem_restart_work);
+    }
+    msleep(2000); 
+    
+}
+// jack for modem ramdump capture ----
 
 /* SGLTE2 restart ordering info*/
 static const char * const order_8064_sglte2[] = {"external_modem",
@@ -353,6 +418,8 @@ static void subsystem_powerup(struct subsys_device *dev, void *data)
 	subsys_set_state(dev, SUBSYS_ONLINE);
 }
 
+int modem_restarting; // ASUS_BSP jack for system restart calling
+
 static void subsystem_restart_wq_func(struct work_struct *work)
 {
 	struct subsys_device *dev = container_of(work,
@@ -364,6 +431,7 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	struct mutex *shutdown_lock;
 	unsigned count;
 	unsigned long flags;
+	struct wake_lock subsystem_restart; // ASUS_BSP+ Wenli "Modify for modem restart"
 
 	if (restart_level != RESET_SUBSYS_INDEPENDENT)
 		soc_restart_order = dev->restart_order;
@@ -419,6 +487,13 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	 */
 	mutex_lock(&soc_order_reg_lock);
 
+
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	wake_lock_init(&subsystem_restart, WAKE_LOCK_SUSPEND, "subsystem_restart");
+	wake_lock_timeout(&subsystem_restart, 60 * HZ);
+// ASUS_BSP--- Wenli "Modify for modem restart"
+
+
 	pr_debug("[%p]: Starting restart sequence for %s\n", current,
 			desc->name);
 	send_notification_to_order(list, count, SUBSYS_BEFORE_SHUTDOWN);
@@ -454,6 +529,11 @@ out:
 	dev->restarting = false;
 	wake_unlock(&dev->wake_lock);
 	spin_unlock_irqrestore(&dev->restart_lock, flags);
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	modem_restarting = 0;
+	wake_unlock(&subsystem_restart);
+	wake_lock_destroy(&subsystem_restart);
+// ASUS_BSP--- Wenli "Modify for modem restart"
 }
 
 static void __subsystem_restart_dev(struct subsys_device *dev)
@@ -497,6 +577,30 @@ int subsystem_restart_dev(struct subsys_device *dev)
 		pr_err("%s crashed during a system poweroff/shutdown.\n", name);
 		return -EBUSY;
 	}
+
+	
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	if(modem_restarting) {
+		pr_err("modem restart processing\n");
+		return 0;
+	}
+	modem_restarting = 1;
+
+	// We only restart when modem is assert
+	if (restart_level != RESET_SOC && is_subsystem_restart_enable(name)) {
+// ASUS_BSP--- Wenli "Modify for modem restart"
+	}
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	else {
+		printk_lcd("Reboot cause by %s\n", name);
+		schedule_work(&subsystem_restart_work);
+		while(warning_count)
+			msleep(100);
+		printk_lcd("system restarting");
+		panic(name);
+		return 0;
+	}
+// ASUS_BSP--- Wenli "Modify for modem restart"
 
 	pr_info("Restart sequence requested for %s, restart_level = %d.\n",
 		name, restart_level);

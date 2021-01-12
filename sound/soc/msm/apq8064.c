@@ -107,7 +107,9 @@ static int rec_mode = INCALL_REC_MONO;
 static struct clk *codec_clk;
 static int clk_users;
 
-static struct snd_soc_jack hs_jack;
+//Bruno++
+//static struct snd_soc_jack hs_jack;
+//Bruno++
 static struct snd_soc_jack button_jack;
 static atomic_t auxpcm_rsc_ref;
 
@@ -128,7 +130,7 @@ static int msm_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 				    bool dapm);
 
 static struct tabla_mbhc_config mbhc_cfg = {
-	.headset_jack = &hs_jack,
+	//.headset_jack = &hs_jack,		//Bruno++
 	.button_jack = &button_jack,
 	.read_fw_bin = false,
 	.calibration = NULL,
@@ -932,8 +934,8 @@ static void *def_tabla_mbhc_cal(void)
 	S(v_btn_press_delta_cic, 50);
 #undef S
 	btn_cfg = TABLA_MBHC_CAL_BTN_DET_PTR(tabla_cal);
-	btn_low = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_LOW);
-	btn_high = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_HIGH);
+	//btn_low = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_LOW);
+	//btn_high = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_HIGH);
 	btn_low[0] = -50;
 	btn_high[0] = 10;
 	btn_low[1] = 11;
@@ -950,13 +952,13 @@ static void *def_tabla_mbhc_cal(void)
 	btn_high[6] = 244;
 	btn_low[7] = 245;
 	btn_high[7] = 330;
-	n_ready = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_READY);
+	//n_ready = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_READY);
 	n_ready[0] = 80;
 	n_ready[1] = 68;
-	n_cic = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_CIC);
+	//n_cic = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_CIC);
 	n_cic[0] = 60;
 	n_cic[1] = 47;
-	gain = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_GAIN);
+	//gain = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_GAIN);
 	gain[0] = 11;
 	gain[1] = 9;
 
@@ -1278,7 +1280,8 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 #endif
 
 	snd_soc_dapm_sync(dapm);
-
+//Rice
+/*
 	err = snd_soc_jack_new(codec, "Headset Jack",
 			       (SND_JACK_HEADSET |  SND_JACK_LINEOUT |
 				SND_JACK_OC_HPHL |  SND_JACK_OC_HPHR |
@@ -1288,7 +1291,8 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("failed to create new jack\n");
 		return err;
 	}
-
+*/
+//Rice
 	err = snd_soc_jack_new(codec, "Button Jack",
 			       TABLA_JACK_BUTTON_MASK, &button_jack);
 	if (err) {

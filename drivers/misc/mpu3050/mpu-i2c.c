@@ -28,7 +28,7 @@
  */
 
 #include <linux/i2c.h>
-#include <linux/mpu.h>
+#include "mpu.h"
 
 int sensor_i2c_write(struct i2c_adapter *i2c_adap,
 		     unsigned char address,
@@ -100,9 +100,8 @@ int mpu_memory_read(struct i2c_adapter *i2c_adap,
 	unsigned char addr[2];
 	unsigned char buf;
 
-	struct i2c_msg msgs[4];
+	struct i2c_msg msgs[1];
 	int ret;
-	int i;
 
 	if (NULL == data || NULL == i2c_adap)
 		return -EINVAL;
@@ -120,28 +119,36 @@ int mpu_memory_read(struct i2c_adapter *i2c_adap,
 	msgs[0].flags = 0;
 	msgs[0].buf = bank;
 	msgs[0].len = sizeof(bank);
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
 
-	msgs[1].addr = mpu_addr;
-	msgs[1].flags = 0;
-	msgs[1].buf = addr;
-	msgs[1].len = sizeof(addr);
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = addr;
+	msgs[0].len = sizeof(addr);
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
 
-	msgs[2].addr = mpu_addr;
-	msgs[2].flags = 0;
-	msgs[2].buf = &buf;
-	msgs[2].len = 1;
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = &buf;
+	msgs[0].len = 1;
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
 
-	msgs[3].addr = mpu_addr;
-	msgs[3].flags = I2C_M_RD;
-	msgs[3].buf = data;
-	msgs[3].len = len;
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = I2C_M_RD;
+	msgs[0].buf = data;
+	msgs[0].len = len;
 
-	for (i = 0; i < 4; i++) {
-		ret = i2c_transfer(i2c_adap, &msgs[i], 1);
-		if (ret != 1)
-			return ret;
-	}
-	return 0;
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
+	else
+		return 0;
 }
 
 int mpu_memory_write(struct i2c_adapter *i2c_adap,
@@ -153,9 +160,8 @@ int mpu_memory_write(struct i2c_adapter *i2c_adap,
 	unsigned char addr[2];
 	unsigned char buf[513];
 
-	struct i2c_msg msgs[3];
+	struct i2c_msg msgs[1];
 	int ret;
-	int i;
 
 	if (NULL == data || NULL == i2c_adap)
 		return -EINVAL;
@@ -176,21 +182,30 @@ int mpu_memory_write(struct i2c_adapter *i2c_adap,
 	msgs[0].flags = 0;
 	msgs[0].buf = bank;
 	msgs[0].len = sizeof(bank);
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
 
-	msgs[1].addr = mpu_addr;
-	msgs[1].flags = 0;
-	msgs[1].buf = addr;
-	msgs[1].len = sizeof(addr);
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = addr;
+	msgs[0].len = sizeof(addr);
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
 
-	msgs[2].addr = mpu_addr;
-	msgs[2].flags = 0;
-	msgs[2].buf = (unsigned char *) buf;
-	msgs[2].len = len + 1;
+	msgs[0].addr = mpu_addr;
+	msgs[0].flags = 0;
+	msgs[0].buf = (unsigned char *) buf;
+	msgs[0].len = len + 1;
 
-	for (i = 0; i < 3; i++) {
-		ret = i2c_transfer(i2c_adap, &msgs[i], 1);
-		if (ret != 1)
-			return ret;
-	}
-	return 0;
+	ret = i2c_transfer(i2c_adap, msgs, 1);
+	if (ret != 1)
+		return ret;
+	else
+		return 0;
 }
+
+/**
+ *  @}
+ */

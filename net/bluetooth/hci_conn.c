@@ -455,6 +455,16 @@ static void hci_conn_timeout(unsigned long arg)
 		if (!atomic_read(&conn->refcnt)) {
 			reason = hci_proto_disconn_ind(conn);
 			hci_acl_disconn(conn, reason);
+			//ASUS_BSP+++ ChanceChen "Early delete sco conn"
+			//0x13:Remote User Terminated Connection
+			if(reason == 0x13 && conn->type == SCO_LINK) {
+				BT_DBG("early delete sco conn %p", conn);
+				conn->state = BT_CLOSED;
+				//0x16:Connection Terminated by Local Host
+				hci_proto_disconn_cfm(conn, 0x16, 0);
+				hci_conn_del(conn);
+			}
+			//ASUS_BSP--- ChanceChen "Early delete sco conn"
 		}
 		break;
 	default:

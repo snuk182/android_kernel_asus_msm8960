@@ -397,6 +397,11 @@ struct msmsdcc_host {
 
 	struct wake_lock	sdio_wlock;
 	struct wake_lock	sdio_suspend_wlock;
+//ASUS_BSP +++ Josh_Liao "enable sd detect irq to wake up system"
+#ifdef CONFIG_SD_DETECT_WAKEUP
+	struct wake_lock	mmc_suspend_wlock;
+#endif /* CONFIG_SD_DETECT_WAKEUP */
+//ASUS_BSP --- Josh_Liao "enable sd detect irq to wake up system"
 	struct timer_list req_tout_timer;
 	unsigned long reg_write_delay;
 	bool io_pad_pwr_switch;

@@ -21,6 +21,9 @@
 
 #include <linux/usb/composite.h>
 #include <asm/unaligned.h>
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Other] Add USB event log"
+#include <linux/asusdebug.h>
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Other] Add USB event log"
 
 /*
  * The code in this file is utility code, used to build a gadget driver
@@ -623,6 +626,9 @@ static int set_config(struct usb_composite_dev *cdev,
 	INFO(cdev, "%s config #%d: %s\n",
 	     usb_speed_string(gadget->speed),
 	     number, c ? c->label : "unconfigured");
+//ASUS_BSP+++ JimmyLin "[A66][USB][NA][Other] Add USB event log"
+       ASUSEvtlog("[USB] speed:%d\n",gadget->speed);
+//ASUS_BSP--- JimmyLin "[A66][USB][NA][Other] Add USB event log"
 
 	if (!c)
 		goto done;

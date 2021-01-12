@@ -692,6 +692,12 @@ config NFC_PN544
 	help
 	  This option enables support for PN544.
 
+config HALL_SENSOR
+	bool "Hall sensor device driver"
+	default n
+	---help---
+	Say Y here to enable Hall sensor support
+
 config USB_HSIC_SMSC_HUB
 	tristate "Support for HSIC based MSM on-chip SMSC3503 HUB"
 	depends on USB_EHCI_MSM_HSIC
@@ -701,6 +707,12 @@ config USB_HSIC_SMSC_HUB
 
 	  This adds support for connecting devices like mouse in HSIC
 	  Host mode.
+
+config CHARGER_MODE
+	bool "Charger mode support"
+	default n
+	---help---
+	Say Y here to enable charger mode support
 
 config BU52031NVX
 	tristate "Cradle BU52031NVX support"

@@ -55,6 +55,8 @@ extern int mako_console_stopped(void);
 static inline int mako_console_stopped(void) { return 0; }
 #endif
 
+extern int g_bDebugMode;
+
 struct msm_hsl_port {
 	struct uart_port	uart;
 	char			name[16];
@@ -1169,6 +1171,9 @@ static void msm_hsl_console_write(struct console *co, const char *s,
 	struct msm_hsl_port *msm_hsl_port;
 	unsigned int vid;
 	int locked;
+	//    [A66][kernel][NA][other]workaround: After enable hs/uart debug, the system enable uart message.
+       if (!g_bDebugMode)
+               return;
 
 	BUG_ON(co->index < 0 || co->index >= UART_NR);
 

@@ -54,6 +54,9 @@ static uint32_t alarm_pending;
 static uint32_t alarm_enabled;
 static uint32_t wait_pending;
 
+static bool IsRtcReady = false; //ASUS BSP Eason_Chang
+bool g_RTC_update = false; //ASUS BSP Eason_Chang : In suspend have same cap don't update savedTime
+
 struct devalarm {
 	union {
 		struct hrtimer hrt;
@@ -188,9 +191,16 @@ static int alarm_set_rtc(struct timespec *ts)
 	alarm_pending |= ANDROID_ALARM_TIME_CHANGE_MASK;
 	wake_up(&alarm_wait_queue);
 	spin_unlock_irqrestore(&alarm_slock, flags);
-
+	ASUSEvtlog("[UTS] Power on");
+    IsRtcReady = true; //ASUS BSP Eason_Chang
+    g_RTC_update = true; //ASUS BSP Eason_Chang : In suspend have same cap don't update savedTime
+    
 	return rv;
 }
+
+bool reportRtcReady(void){
+    return IsRtcReady;
+}    
 
 static int alarm_get_time(enum android_alarm_type alarm_type,
 							struct timespec *ts)
@@ -216,6 +226,7 @@ static int alarm_get_time(enum android_alarm_type alarm_type,
 	return rv;
 }
 
+int asus_rtc_set = 0;
 static long alarm_do_ioctl(struct file *file, unsigned int cmd,
 							struct timespec *ts)
 {
@@ -258,6 +269,14 @@ static long alarm_do_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case ANDROID_ALARM_SET_RTC:
 		rv = alarm_set_rtc(ts);
+        { // jack added to get correct time for last shutdown log +++++++++++
+            void get_last_shutdown_log(void);
+            if(!asus_rtc_set)
+            {  
+                asus_rtc_set = 1;
+                get_last_shutdown_log();       
+            }
+        }// jack added to get correct time for last shutdown log ------------
 		break;
 	case ANDROID_ALARM_GET_TIME(0):
 		rv = alarm_get_time(alarm_type, ts);

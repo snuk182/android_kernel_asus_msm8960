@@ -662,6 +662,8 @@ const struct file_operations rmnet_usb_data_fops = {
 	.release = single_release,
 };
 
+//ASUS_BSP+++ BennyCheng "fix rmnet driver probe fail with user build"
+#ifdef CONFIG_DEBUG_FS
 static int rmnet_usb_data_debugfs_init(struct usbnet *unet)
 {
 	struct dentry *rmnet_usb_data_dbg_root;
@@ -685,6 +687,8 @@ static int rmnet_usb_data_debugfs_init(struct usbnet *unet)
 
 	return 0;
 }
+#endif
+//ASUS_BSP--- BennyCheng "fix rmnet driver probe fail with user build"
 
 static void rmnet_usb_data_debugfs_cleanup(struct usbnet *unet)
 {
@@ -765,11 +769,14 @@ static int rmnet_usb_probe(struct usb_interface *iface,
 			usbnet_disconnect(iface);
 			goto out;
 		}
-
+//ASUS_BSP+++ BennyCheng "fix rmnet driver probe fail with user build"
+#ifdef CONFIG_DEBUG_FS
 		status = rmnet_usb_data_debugfs_init(unet);
 		if (status)
 			dev_dbg(&iface->dev,
 					"mode debugfs file is not available\n");
+#endif
+//ASUS_BSP--- BennyCheng "fix rmnet driver probe fail with user build"
 	}
 
 	usb_enable_autosuspend(udev);
@@ -780,7 +787,9 @@ static int rmnet_usb_probe(struct usb_interface *iface,
 		device_set_wakeup_enable(&udev->parent->dev, 1);
 
 		/* set default autosuspend timeout for modem and roothub */
-		pm_runtime_set_autosuspend_delay(&udev->dev, 1000);
+		//ASUS_BSP+++ BennyCheng "extend hsic autosuspend delay time from 1s to 2s"
+		pm_runtime_set_autosuspend_delay(&udev->dev, 2000);
+		//ASUS_BSP--- BennyCheng "extend hsic autosuspend delay time from 1s to 2s"
 		pm_runtime_set_autosuspend_delay(&udev->parent->dev, 200);
 	}
 

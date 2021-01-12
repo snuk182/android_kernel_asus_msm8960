@@ -38,6 +38,15 @@
 #include "usb-wwan.h"
 
 static bool debug;
+//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+static struct workqueue_struct *msm_usb_wwan_wq;
+//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+static struct usb_wwan_port_private *s_portdata = NULL;
+static u8 *s_inbuf[N_IN_URB] = {0};
+static u8 *s_outbuf[N_OUT_URB] = {0};
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 
 void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 {
@@ -379,7 +388,9 @@ static void usb_wwan_indat_callback(struct urb *urb)
 		list_add_tail(&urb->urb_list, &portdata->in_urb_list);
 		spin_unlock_irqrestore(&portdata->in_lock, flags);
 
-		queue_work(system_nrt_wq, &portdata->in_work);
+		//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+		queue_work_on(0, msm_usb_wwan_wq, &portdata->in_work);
+		//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 
 		return;
 	}
@@ -498,7 +509,9 @@ void usb_wwan_unthrottle(struct tty_struct *tty)
 	port->throttle_req = false;
 	port->throttled = false;
 
-	queue_work(system_nrt_wq, &portdata->in_work);
+	//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+	queue_work_on(0, msm_usb_wwan_wq, &portdata->in_work);
+	//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 }
 EXPORT_SYMBOL(usb_wwan_unthrottle);
 
@@ -684,12 +697,22 @@ int usb_wwan_startup(struct usb_serial *serial)
 	/* Now setup per port private data */
 	for (i = 0; i < serial->num_ports; i++) {
 		port = serial->port[i];
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+		if (0 == i) {
+			if (NULL == s_portdata) {
+				s_portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
+			}
+			portdata = s_portdata;
+		}
+		else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 		portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
 		if (!portdata) {
 			dbg("%s: kmalloc for usb_wwan_port_private (%d) failed!.",
 			    __func__, i);
 			return 1;
 		}
+		memset(portdata, 0, sizeof(*portdata)); // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 		init_usb_anchor(&portdata->delayed);
 		init_usb_anchor(&portdata->submitted);
 		INIT_WORK(&portdata->in_work, usb_wwan_in_work);
@@ -697,6 +720,15 @@ int usb_wwan_startup(struct usb_serial *serial)
 		spin_lock_init(&portdata->in_lock);
 
 		for (j = 0; j < N_IN_URB; j++) {
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+			if (0 == i) {
+				if (!s_inbuf[j]) {
+					s_inbuf[j] = kmalloc(IN_BUFLEN, GFP_KERNEL);
+				}
+				buffer = s_inbuf[j];
+			}
+			else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 			buffer = kmalloc(IN_BUFLEN, GFP_KERNEL);
 			if (!buffer)
 				goto bail_out_error;
@@ -704,6 +736,15 @@ int usb_wwan_startup(struct usb_serial *serial)
 		}
 
 		for (j = 0; j < N_OUT_URB; j++) {
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+			if (0 == i) {
+				if (!s_outbuf[j]) {
+					s_outbuf[j] = kmalloc(OUT_BUFLEN, GFP_KERNEL);
+				}
+				buffer = s_outbuf[j];
+			}
+			else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 			buffer = kmalloc(OUT_BUFLEN, GFP_KERNEL);
 			if (!buffer)
 				goto bail_out_error2;
@@ -713,15 +754,24 @@ int usb_wwan_startup(struct usb_serial *serial)
 		usb_set_serial_port_data(port, portdata);
 	}
 	usb_wwan_setup_urbs(serial);
+	//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+	if (!msm_usb_wwan_wq)
+		msm_usb_wwan_wq = create_singlethread_workqueue("msm_usb_wwan_wq");
+	//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 	return 0;
 
 bail_out_error2:
-	for (j = 0; j < N_OUT_URB; j++)
+	for (j = 0; j < N_OUT_URB; j++) {
 		kfree(portdata->out_buffer[j]);
+		s_inbuf[j] = 0; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
+	}
 bail_out_error:
-	for (j = 0; j < N_IN_URB; j++)
+	for (j = 0; j < N_IN_URB; j++) {
 		kfree(portdata->in_buffer[j]);
+		s_outbuf[j] = 0; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
+	}
 	kfree(portdata);
+	s_portdata = NULL; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 	return 1;
 }
 EXPORT_SYMBOL(usb_wwan_startup);
@@ -774,18 +824,20 @@ void usb_wwan_release(struct usb_serial *serial)
 
 		for (j = 0; j < N_IN_URB; j++) {
 			usb_free_urb(portdata->in_urbs[j]);
+			if (0 != i) // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 			kfree(portdata->in_buffer[j]);
 			portdata->in_urbs[j] = NULL;
 		}
 		for (j = 0; j < N_OUT_URB; j++) {
 			usb_free_urb(portdata->out_urbs[j]);
+			if (0 != i) // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 			kfree(portdata->out_buffer[j]);
 			portdata->out_urbs[j] = NULL;
 		}
 	}
 
 	/* Now free per port private data */
-	for (i = 0; i < serial->num_ports; i++) {
+	for (i = 1; i < serial->num_ports; i++) { // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 		port = serial->port[i];
 		kfree(usb_get_serial_port_data(port));
 	}

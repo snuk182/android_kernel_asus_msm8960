@@ -53,7 +53,7 @@
 #include <mach/iommu_domains.h>
 #include <mach/socinfo.h>
 #include "pm.h"
-
+#include <mach/msm_xo.h>
 #ifdef CONFIG_MSM_MPM
 #include <mach/mpm.h>
 #endif
@@ -1483,6 +1483,8 @@ static struct pil_q6v4_pdata msm_8960_q6_mss_fw_data = {
 	.strap_ahb_lower = 0x00000080,
 	.aclk_reg = SFAB_MSS_Q6_FW_ACLK_CTL,
 	.jtag_clk_reg = MSS_Q6FW_JTAG_CLK_CTL,
+    .xo1_id = MSM_XO_TCXO_A0,
+    .xo2_id = MSM_XO_TCXO_A1,
 	.name = "modem_fw",
 	.depends = "q6",
 	.pas_id = PAS_MODEM_FW,
@@ -1967,6 +1969,18 @@ static struct resource resources_qup_i2c_gsbi10[] = {
 		.end	= GSBI10_QUP_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
+    {
+        .name    = "i2c_clk",
+        .start    = 74,
+        .end    = 74,
+        .flags    = IORESOURCE_IO,
+    },
+    {
+        .name    = "i2c_sda",
+        .start    = 73,
+        .end    = 73,
+        .flags    = IORESOURCE_IO,
+    },
 };
 
 struct platform_device msm8960_device_qup_i2c_gsbi10 = {
@@ -2365,6 +2379,10 @@ static struct resource resources_qup_spi_gsbi1[] = {
 		.end    = MSM8960_GSBI1_QUP_IRQ,
 		.flags  = IORESOURCE_IRQ,
 	},
+
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/11/4] Modify Begin
+#if 0		
 	{
 		.name   = "spi_clk",
 		.start  = 9,
@@ -2395,6 +2413,9 @@ static struct resource resources_qup_spi_gsbi1[] = {
 		.end    = 14,
 		.flags  = IORESOURCE_IO,
 	},
+#endif	
+//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/11/4] Modify End
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 };
 
 struct platform_device msm8960_device_qup_spi_gsbi1 = {
@@ -2746,8 +2767,8 @@ static struct msm_bus_vectors rotator_ui_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_ROTATOR,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = (1024 * 600 * 4 * 2 * 60),
-		.ib  = (1024 * 600 * 4 * 2 * 60 * 1.5),
+		.ab  = (1280 * 960 * 4 * 2 * 60),//(1024 * 600 * 4 * 2 * 60),
+		.ib  = (1280 * 960 * 4 * 2 * 60 * 1.5),//(1024 * 600 * 4 * 2 * 60 * 1.5),
 	},
 };
 
@@ -2755,8 +2776,8 @@ static struct msm_bus_vectors rotator_vga_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_ROTATOR,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = (640 * 480 * 2 * 2 * 30),
-		.ib  = (640 * 480 * 2 * 2 * 30 * 1.5),
+		.ab  = (1280 * 960 * 4 * 2 * 60),//(640 * 480 * 2 * 2 * 30),
+		.ib  = (1280 * 960 * 4 * 2 * 60),//(640 * 480 * 2 * 2 * 30 * 1.5),
 	},
 };
 static struct msm_bus_vectors rotator_720p_vectors[] = {

@@ -211,6 +211,12 @@ void pm8921_charger_vbus_draw(unsigned int mA);
 int pm8921_charger_register_vbus_sn(void (*callback)(int));
 void pm8921_charger_unregister_vbus_sn(void (*callback)(int));
 
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+int pm8921_is_chg_plugged_in(void);
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
+
 /**
  * pm8921_is_usb_chg_plugged_in - is usb plugged in
  *

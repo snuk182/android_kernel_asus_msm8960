@@ -64,6 +64,7 @@ struct vregs_info {
 };
 
 static struct vregs_info iris_vregs[] = {
+	{"iris_vddio",  VREG_NULL_CONFIG, 0000000, 0, 0000000, 0,      NULL},
 	{"iris_vddxo",  VREG_NULL_CONFIG, 1800000, 0, 1800000, 10000,  NULL},
 	{"iris_vddrfa", VREG_NULL_CONFIG, 1300000, 0, 1300000, 100000, NULL},
 	{"iris_vddpa",  VREG_NULL_CONFIG, 2900000, 0, 3000000, 515000, NULL},
@@ -318,26 +319,45 @@ int wcnss_wlan_power(struct device *dev,
 		down(&riva_power_on_lock);
 		/* RIVA regulator settings */
 		rc = wcnss_riva_vregs_on(dev);
-		if (rc)
+		if (rc) {
+            pr_info("[wcnss]: wcnss_riva_vregs_on fail.\n");
 			goto fail_riva_on;
+        }
+        else {
+            pr_info("[wcnss]: wcnss_riva_vregs_on.\n");
+        }
 
 		/* IRIS regulator settings */
 		rc = wcnss_iris_vregs_on(dev);
-		if (rc)
+		if (rc) {
+            pr_info("[wcnss]: wcnss_iris_vregs_on fail.\n");
 			goto fail_iris_on;
+        }
+        else {
+            pr_info("[wcnss]: wcnss_iris_vregs_on.\n");
+        }
 
 		/* Configure IRIS XO */
-		rc = configure_iris_xo(dev, cfg->use_48mhz_xo,
-				WCNSS_WLAN_SWITCH_ON);
-		if (rc)
+		rc = configure_iris_xo(dev, cfg->use_48mhz_xo, WCNSS_WLAN_SWITCH_ON);
+		if (rc) {
+            pr_info("[wcnss]: WCNSS_WLAN_SWITCH_ON fail.\n");
 			goto fail_iris_xo;
+        }
+        else {
+            pr_info("[wcnss]: WCNSS_WLAN_SWITCH_ON.\n");
+        }
+
 		up(&riva_power_on_lock);
 
 	} else {
 		configure_iris_xo(dev, cfg->use_48mhz_xo,
 				WCNSS_WLAN_SWITCH_OFF);
+        pr_info("[wcnss]: WCNSS_WLAN_SWITCH_OFF.\n");
+
 		wcnss_iris_vregs_off();
+        pr_info("[wcnss]: wcnss_iris_vregs_off.\n");
 		wcnss_riva_vregs_off();
+        pr_info("[wcnss]: wcnss_riva_vregs_off.\n");
 	}
 
 	return rc;

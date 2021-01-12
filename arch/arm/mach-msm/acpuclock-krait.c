@@ -39,6 +39,10 @@
 #include "acpuclock-krait.h"
 #include "avs.h"
 
+#ifdef CONFIG_CHARGER_MODE
+extern char g_CHG_mode; //+ASUS_BSP Allen1_Huang: ACPU run 384mhz to reduce power consumption in charger mode
+#endif
+
 /* MUX source selects. */
 #define PRI_SRC_SEL_SEC_SRC	0
 #define PRI_SRC_SEL_HFPLL	1
@@ -1061,13 +1065,25 @@ static int __init get_pvs_bin(u32 pte_efuse)
 	if (pvs_bin == 0x7)
 		pvs_bin = (pte_efuse >> 13) & 0x7;
 
+// ASUS BSP +++ [A66][kernel][NA][hang] force set ACPU PVS to slow.
+		printk("hardcode ACPU PVS to slow, original pvs=%d\n", pvs_bin);
+		pvs_bin = 0x0;
+// ASUS BSP --- [A66][kernel][NA][hang] force set ACPU PVS to slow.
+
 	if (pvs_bin == 0x7) {
 		pvs_bin = 0;
 		dev_warn(drv.dev, "ACPU PVS: Defaulting to %d\n", pvs_bin);
 	} else {
 		dev_info(drv.dev, "ACPU PVS: %d\n", pvs_bin);
 	}
-
+//+++ ASUS_BSP Enter_Zhang: ACPU run 384mhz to reduce power consumption in charger mode
+#ifdef CONFIG_CHARGER_MODE
+	if(g_CHG_mode)
+	{
+		pvs_bin = PVS_CHARGER;
+	}
+#endif
+//--- ASUS_BSP Enter_Zhang: ACPU run 384mhz to reduce power consumption in charger mode
 	return pvs_bin;
 }
 

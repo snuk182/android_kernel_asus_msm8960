@@ -551,8 +551,14 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		//ASUS BSP Eason_Chang +++ 
+		/*if (rc < 0)
+			return rc;*/
+        if (rc < 0){
+			pm8xxx_adc_calib_first_adc = false;
 			return rc;
+        }	
+		//ASUS BSP Eason_Chang --- 
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -626,8 +632,10 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		if (rc < 0){//ASUS BSP Eason_Chang
+			pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 			return rc;
+		}//	ASUS BSP Eason_Chang
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -656,8 +664,10 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		if (rc < 0){//ASUS BSP Eason_Chang
+		    pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 			return rc;
+			}//	ASUS BSP Eason_Chang
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -681,6 +691,7 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					calib_read_2;
 calib_fail:
 	rc = pm8xxx_adc_arb_cntrl(0, CHANNEL_NONE);
+	pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 	if (rc < 0) {
 		pr_err("%s: Configuring ADC Arbiter disable"
 					"failed\n", __func__);

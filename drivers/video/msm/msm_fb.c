@@ -127,6 +127,9 @@ static int msm_fb_pan_idle(struct msm_fb_data_type *mfd);
 #define MSM_FB_MAX_DBGFS 1024
 #define MAX_BACKLIGHT_BRIGHTNESS 255
 
+extern bool g_displayOn;//Mickey+++
+extern void amoled_display_on(void); //Mickey+++
+
 #define WAIT_FENCE_FIRST_TIMEOUT (3 * MSEC_PER_SEC)
 #define WAIT_FENCE_FINAL_TIMEOUT (10 * MSEC_PER_SEC)
 /* Display op timeout should be greater than total timeout */
@@ -178,7 +181,8 @@ int msm_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 }
 
 static int msm_fb_resource_initialized;
-
+bool g_fb0_on = true;
+extern void set_pad_bl_brightness(struct led_classdev *led_cdev, enum led_brightness value);
 #ifndef CONFIG_FB_BACKLIGHT
 static int lcd_backlight_registered;
 
@@ -186,7 +190,12 @@ static void msm_fb_set_bl_brightness(struct led_classdev *led_cdev,
 					enum led_brightness value)
 {
 	struct msm_fb_data_type *mfd = dev_get_drvdata(led_cdev->dev->parent);
-	int bl_lvl;
+	int bl_lvl = value;
+	
+	set_pad_bl_brightness(led_cdev, value);
+	
+	if (value > MAX_BACKLIGHT_BRIGHTNESS)
+		value = MAX_BACKLIGHT_BRIGHTNESS;
 
 	/* This maps android backlight level 1 to 255 into
 	   driver backlight level bl_min to bl_max with rounding
@@ -835,6 +844,8 @@ static int msm_fb_runtime_idle(struct device *dev)
 	return 0;
 }
 
+bool g_skipHPD = false;//Mickey+++
+extern bool g_p01State;//Mickey+++
 #if (defined(CONFIG_SUSPEND) && defined(CONFIG_FB_MSM_HDMI_MSM_PANEL))
 static int msm_fb_ext_suspend(struct device *dev)
 {
@@ -855,6 +866,10 @@ static int msm_fb_ext_suspend(struct device *dev)
 	pdata = (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
 	if (mfd->panel_info.type == HDMI_PANEL ||
 		mfd->panel_info.type == DTV_PANEL) {
+    //Mickey+++
+        if (g_p01State)
+            g_skipHPD = true;
+    //Mickey---
 		ret = msm_fb_suspend_sub(mfd);
 
 		/* Turn off the HPD circuitry */
@@ -935,6 +950,40 @@ static void memset32_io(u32 __iomem *_ptr, u32 val, size_t count)
 }
 #endif
 
+//Mickey+++
+void asus_update_screen(struct fb_var_screeninfo *var,struct fb_info *info);
+DEFINE_SEMAPHORE(msm_fb_suspend_sem);
+bool g_earlySuspend = false;
+extern void asus_mdp4_mixer0_pipe_cleanup(struct fb_info*);//Mickey+++
+void asus_fb0_screen_suspend(bool suspend)
+{
+    down(&msm_fb_suspend_sem);
+    printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d, suspend=%d+++\n",__func__,mfd_list[0]->asus_panel_disable,g_fb0_on,g_earlySuspend,suspend);
+    if (suspend)
+    {
+        mfd_list[0]->asus_panel_disable = true;
+        if (g_fb0_on)
+        {
+            msm_fb_suspend_sub(mfd_list[0]);
+            g_fb0_on = false;
+        }
+    }
+    else
+    {
+        if (!g_earlySuspend && !g_fb0_on)
+        {
+            msm_fb_resume_sub(mfd_list[0]);
+            //asus_update_screen(&mfd_list[0]->fbi->var,mfd_list[0]->fbi);
+            g_fb0_on = true;
+        }
+        mfd_list[0]->asus_panel_disable = false;
+    }
+    printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d, suspend=%d---\n",__func__,mfd_list[0]->asus_panel_disable,g_fb0_on,g_earlySuspend,suspend);
+    up(&msm_fb_suspend_sem);
+}
+//Mickey---
+
+int g_fb0_dsi_block = 0;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void msmfb_early_suspend(struct early_suspend *h)
 {
@@ -962,7 +1011,25 @@ static void msmfb_early_suspend(struct early_suspend *h)
 		break;
 	}
 #endif
-	msm_fb_suspend_sub(mfd);
+    //Mickey+++
+    down(&msm_fb_suspend_sem);
+    if (mfd->fbi->node == 0)
+    {
+		g_fb0_dsi_block = 1;
+        printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d+++\n",__func__,mfd->asus_panel_disable,g_fb0_on,g_earlySuspend);
+        if (g_fb0_on && !mfd->asus_panel_disable)
+        {
+            msm_fb_suspend_sub(mfd);
+            g_fb0_on = false;
+        }
+        g_earlySuspend = true;
+        printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d---\n",__func__,mfd->asus_panel_disable,g_fb0_on,g_earlySuspend);
+        g_fb0_dsi_block = 0;
+    }
+    else
+        msm_fb_suspend_sub(mfd);
+    up(&msm_fb_suspend_sem);
+    //Mickey---
 
 	pdata = (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
 	if (hdmi_prim_display &&
@@ -995,7 +1062,25 @@ static void msmfb_early_resume(struct early_suspend *h)
 		}
 	}
 
-	msm_fb_resume_sub(mfd);
+    //Mickey+++
+    down(&msm_fb_suspend_sem);
+    if (mfd->fbi->node == 0)
+    {
+		g_fb0_dsi_block = 1;
+        printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d+++\n",__func__,mfd->asus_panel_disable,g_fb0_on,g_earlySuspend);
+        if (!g_fb0_on && !mfd->asus_panel_disable)
+        {
+            msm_fb_resume_sub(mfd);
+            g_fb0_on = true;
+        }
+        g_earlySuspend = false;
+        printk("%s : asus_panel_disable=%d, g_fb0_on=%d, g_earlySuspend=%d---\n",__func__,mfd->asus_panel_disable,g_fb0_on,g_earlySuspend);
+        g_fb0_dsi_block = 0;
+    }
+    else
+	    msm_fb_resume_sub(mfd);
+    up(&msm_fb_suspend_sem);
+    //Mickey---
 }
 #endif
 
@@ -1197,6 +1282,13 @@ int calc_fb_offset(struct msm_fb_data_type *mfd, struct fb_info *fbi, int bpp)
 		offset = (fbi->var.xoffset * bpp + 2 * yres *
 		fbi->fix.line_length + 2 * (PAGE_SIZE - remainder));
 	}
+
+//++ ASUS_BSP: Louis
+    if (fbi->var.yoffset >= yres && fbi->var.yoffset >= 3 * yres) {
+        offset = fbi->var.xoffset * bpp + fbi->var.yoffset * fbi->fix.line_length;
+    }
+//-- ASUS_BSP: Louis
+
 	return offset;
 }
 
@@ -1586,6 +1678,20 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 			__func__, __LINE__, mfd->index);
 		fix->smem_len = 0;
 	}
+
+// ASUS_BSP +++ Tingyi "Allocate different buffers for panel and HDMI"
+	if (1280 == panel_info->mode2_xres && 960 == panel_info->mode2_yres)
+	{
+// ASUS_BSP +++ Tingyi "[A66][Dispaly] Enable triple buffer"
+			// 1280*960*4*3= 0xE10000 //1280*960*4*3 + 544*960*4*2 = 0x120c000
+		fix->smem_len = 0x120c000; 		
+// ASUS_BSP --- Tingyi "[A66][Dispaly] Enable triple buffer"		
+		
+		mfd->fb_page = fix->smem_len / fix->line_length; // fix->line_length = 544*4 or 480*4
+
+		printk("DDS:[msm_fb.c]msm_fb_register(): modify fix->smem_len = 0x%x, mfd->fb_page = %d\n",fix->smem_len,mfd->fb_page);
+	}
+// ASUS_BSP --- Tingyi "Allocate different buffers for panel and HDMI"
 
 	mfd->var_xres = panel_info->xres;
 	mfd->var_yres = panel_info->yres;
@@ -2294,6 +2400,13 @@ static int msm_fb_pan_display_sub(struct fb_var_screeninfo *var,
 
 		dirtyPtr = &dirty;
 	}
+    //Mickey+++, skip internal panel pan in pad mode
+    down(&msm_fb_suspend_sem);
+    if (info->node == 0 && mfd->asus_panel_disable) {
+        up(&msm_fb_suspend_sem);
+        return 0;
+    }
+    //Mickey---
 	complete(&mfd->msmfb_update_notify);
 	mutex_lock(&msm_fb_notify_update_sem);
 	if (mfd->msmfb_no_update_notify_timer.function)
@@ -2310,6 +2423,7 @@ static int msm_fb_pan_display_sub(struct fb_var_screeninfo *var,
 		if (msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable)) {
 			pr_err("%s: can't turn on display!\n", __func__);
 			up(&msm_fb_pan_sem);
+			up(&msm_fb_suspend_sem);//Mickey+++
 			msm_fb_release_timeline(mfd);
 			return -EINVAL;
 		}
@@ -2329,7 +2443,7 @@ static int msm_fb_pan_display_sub(struct fb_var_screeninfo *var,
 		pr_err("%s: unmap secure res failed\n", __func__);
 
 	up(&msm_fb_pan_sem);
-
+    up(&msm_fb_suspend_sem);//Mickey+++
 	if (!bl_updated)
 		schedule_delayed_work(&mfd->backlight_worker,
 					backlight_duration);
@@ -2338,6 +2452,12 @@ static int msm_fb_pan_display_sub(struct fb_var_screeninfo *var,
 		mdp_free_splash_buffer(mfd);
 
 	++mfd->panel_info.frame_count;
+	
+	//Mickey+++
+    if (!g_displayOn && info->node==0)//only for fb0
+        amoled_display_on();
+    //Mickey---
+    
 	return 0;
 }
 
@@ -2367,6 +2487,56 @@ static void msm_fb_commit_wq_handler(struct work_struct *work)
 		schedule_delayed_work(&mfd->backlight_worker,
 					backlight_duration);
 }
+
+//Louis +++
+void asus_update_screen(struct fb_var_screeninfo *var,
+                  struct fb_info *info)
+{
+    struct mdp_dirty_region dirty;
+    struct mdp_dirty_region *dirtyPtr = NULL;
+    struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+
+    if (var->reserved[0] == 0x54445055) {
+
+        dirty.xoffset = var->reserved[1] & 0xffff;
+        dirty.yoffset = (var->reserved[1] >> 16) & 0xffff;
+
+        dirty.width = (var->reserved[2] & 0xffff) - dirty.xoffset;
+        dirty.height =
+            ((var->reserved[2] >> 16) & 0xffff) - dirty.yoffset;
+        info->var.yoffset = var->yoffset;
+
+        dirtyPtr = &dirty;
+    }
+
+    mutex_lock(&msm_fb_notify_update_sem);
+    if (mfd->msmfb_no_update_notify_timer.function)
+        del_timer(&mfd->msmfb_no_update_notify_timer);
+
+    mfd->msmfb_no_update_notify_timer.expires =
+                jiffies + ((1000 * HZ) / 1000);
+    add_timer(&mfd->msmfb_no_update_notify_timer);
+    mutex_unlock(&msm_fb_notify_update_sem);
+
+    down(&msm_fb_pan_sem);
+
+    if (info->node == 0 && !(mfd->cont_splash_done)) { /* primary */
+        mdp_set_dma_pan_info(info, NULL, TRUE);
+        if (msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable)) {
+            pr_err("%s: can't turn on display!\n", __func__);
+            return;
+        }
+    }
+
+    mdp_set_dma_pan_info(info, dirtyPtr,
+                 (var->activate == FB_ACTIVATE_VBL));
+    mdp_dma_pan_update(info);
+    up(&msm_fb_pan_sem);
+
+    ++mfd->panel_info.frame_count;
+}
+EXPORT_SYMBOL(asus_update_screen);
+//Louis ---
 
 static int msm_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
@@ -2548,8 +2718,10 @@ static int msm_fb_set_par(struct fb_info *info)
 
 		blank = 1;
 	}
-	mfd->fbi->fix.line_length = msm_fb_line_length(mfd->index, var->xres,
+// ASUS_BSP +++ Tingyi "[A68][DDS] Enable xres_virtual ability in display driver"
+	mfd->fbi->fix.line_length = msm_fb_line_length(mfd->index, var->xres_virtual,
 						       var->bits_per_pixel/8);
+// ASUS_BSP --- Tingyi "[A68][DDS] Enable xres_virtual ability in display driver"
 
 	if ((mfd->panel_info.type == DTV_PANEL) && mdp_fb_is_power_off(mfd)) {
 		msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable);
@@ -3434,11 +3606,25 @@ static int msmfb_overlay_set(struct fb_info *info, void __user *p)
 {
 	struct mdp_overlay req;
 	int ret;
-
-	if (copy_from_user(&req, p, sizeof(req)))
+    //Mickey+++, do nothing when we are in pad mode
+    struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+    down(&msm_fb_suspend_sem);
+    if (info->node == 0 && mfd->asus_panel_disable) {
+        up(&msm_fb_suspend_sem);
+        return -1;
+    }
+    if (copy_from_user(&req, p, sizeof(req))) {
+        up(&msm_fb_suspend_sem);
 		return -EFAULT;
-
+    }
+    //Mickey+++
+    if (!g_displayOn && info->node==0)//only for fb0
+        msm_fb_pan_display(&(info->var),info);
+    //Mickey---
+	
 	ret = mdp4_overlay_set(info, &req);
+    up(&msm_fb_suspend_sem);
+    //Mickey---
 	if (ret) {
 		printk(KERN_ERR "%s: ioctl failed, rc=%d\n",
 			__func__, ret);
@@ -3544,7 +3730,14 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 			__func__);
 		return ret;
 	}
-
+    //Mickey+++, do nothing when we are in pad mode
+    down(&msm_fb_suspend_sem);
+    if (info->node == 0 && mfd->asus_panel_disable) {
+        up(&msm_fb_suspend_sem);
+        printk("JASON: %s do nothing when in pad mode\n",__func__);
+        return -1;
+    }
+    //Mickey---
 	if (info->node == 0 && !(mfd->cont_splash_done)) { /* primary */
 		mdp_set_dma_pan_info(info, NULL, TRUE);
 		if (msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable)) {
@@ -3554,8 +3747,11 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 	}
 
 	if (mdp_fb_is_power_off(mfd)) /* suspended */
+	{
+		up(&msm_fb_suspend_sem); //ASUS_BSP +++ Jason Chang "[A68][Display][TT388701]release semaphore when panel is power off"
+		printk("Warning: %s panel was suspended\n",__func__);
 		return -EPERM;
-
+	}
 	complete(&mfd->msmfb_update_notify);
 	mutex_lock(&msm_fb_notify_update_sem);
 	if (mfd->msmfb_no_update_notify_timer.function)
@@ -3566,7 +3762,7 @@ static int msmfb_overlay_play(struct fb_info *info, unsigned long *argp)
 	mutex_unlock(&msm_fb_notify_update_sem);
 
 	ret = mdp4_overlay_play(info, &req);
-
+    up(&msm_fb_suspend_sem);//Mickey+++
 	if (info->node == 0 && (mfd->cont_splash_done)) /* primary */
 		mdp_free_splash_buffer(mfd);
 
@@ -3953,6 +4149,8 @@ static int msmfb_handle_pp_ioctl(struct msm_fb_data_type *mfd,
 
 	return ret;
 }
+extern bool g_p01State;//Mickey
+//unsigned long long int mdp4_overlay_get_vsync(void);//Mickey+++, add for vsync ioctl (snuk182 - mb unneeded)
 
 static int msmfb_handle_buf_sync_ioctl(struct msm_fb_data_type *mfd,
 						struct mdp_buf_sync *buf_sync)
@@ -4388,6 +4586,25 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		if (ret == 1)
 			ret = copy_to_user(argp, &mdp_pp, sizeof(mdp_pp));
 		break;
+    //Mickey+++, add interface for query padstation status
+    case ASUS_PADSTATION_GET:
+        ret = copy_to_user(argp, &g_p01State, sizeof(g_p01State));
+        if (ret){
+            printk(KERN_ERR "%s:ASUS_PADSTATION_GET ioctl failed \n",__func__);
+            return ret ;
+        }
+        break;
+    //Mickey---
+    
+    //Mickey+++, add for vsync ioctl (snuk182 mb unneeded)
+    /*case MSMFB_GET_VSYNC:
+        {
+            unsigned long long int vsync = mdp4_overlay_get_vsync();
+            ret = copy_to_user(argp, &vsync, sizeof(vsync));
+        }
+        break;
+	*/
+    //Mickey--- 
 	case MSMFB_BUFFER_SYNC:
 		ret = copy_from_user(&buf_sync, argp, sizeof(buf_sync));
 		if (ret)
@@ -4560,6 +4777,7 @@ struct platform_device *msm_fb_add_device(struct platform_device *pdev)
 
 	/* link to the panel pdev */
 	mfd->panel_pdev = pdev;
+    mfd->asus_panel_disable = false;//Mickey+++
 #ifdef CONFIG_DEBUG_FS
 	mutex_init(&mfd->power_lock);
 #endif
@@ -4625,6 +4843,21 @@ int get_fb_phys_info(unsigned long *start, unsigned long *len, int fb_num,
 }
 EXPORT_SYMBOL(get_fb_phys_info);
 
+//ASUS jack for getting fb_info +++++
+struct fb_info * asus_get_fb_info(int fb_num)
+{
+    struct fb_info * info;
+    if (fb_num > MAX_FBI_LIST)
+        return 0;
+
+    info = fbi_list[fb_num];
+    if (!info)
+        return 0;
+
+    return info;
+}
+EXPORT_SYMBOL(asus_get_fb_info);
+//ASUS jack for getting fb_info ----
 int __init msm_fb_init(void)
 {
 	int rc = -ENODEV;

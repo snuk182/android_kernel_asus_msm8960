@@ -1,20 +1,20 @@
 /*
- $License:
-    Copyright (C) 2010 InvenSense Corporation, All Rights Reserved.
+	$License:
+	Copyright (C) 2011 InvenSense Corporation, All Rights Reserved.
 
-    This program is free software; you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation; either version 2 of the License, or
-    (at your option) any later version.
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-  $
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+	$
  */
 
 /**
@@ -34,10 +34,10 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include "mpu-dev.h"
 
 #include <log.h>
-#include "mpu.h"
-#include "mlos.h"
+#include <linux/mpu.h>
 #include "mlsl.h"
 #include "mldl_cfg.h"
 #undef MPL_LOG_TAG
@@ -76,30 +76,39 @@ static int ak8972_init(void *mlsl_handle,
 
 	struct ak8972_private_data *private_data;
 	private_data = (struct ak8972_private_data *)
-	    MLOSMalloc(sizeof(struct ak8972_private_data));
+	    kzalloc(sizeof(struct ak8972_private_data), GFP_KERNEL);
 
 	if (!private_data)
-		return ML_ERROR_MEMORY_EXAUSTED;
+		return INV_ERROR_MEMORY_EXAUSTED;
 
-	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+	result = inv_serial_single_write(mlsl_handle, pdata->address,
 					 AK8972_REG_CNTL,
 					 AK8972_CNTL_MODE_POWER_DOWN);
-	ERROR_CHECK_FREE(result, private_data);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 	/* Wait at least 100us */
 	udelay(100);
 
-	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+	result = inv_serial_single_write(mlsl_handle, pdata->address,
 					 AK8972_REG_CNTL,
 					 AK8972_CNTL_MODE_FUSE_ROM_ACCESS);
-	ERROR_CHECK_FREE(result, private_data);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 
 	/* Wait at least 200us */
 	udelay(200);
 
-	result = MLSLSerialRead(mlsl_handle, pdata->address,
+	result = inv_serial_read(mlsl_handle, pdata->address,
 				 AK8972_REG_ASAX,
 				 COMPASS_NUM_AXES, serial_data);
-	ERROR_CHECK_FREE(result, private_data);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 
 	pdata->private_data = private_data;
 
@@ -107,32 +116,56 @@ static int ak8972_init(void *mlsl_handle,
 	private_data->init.asa[1] = serial_data[1];
 	private_data->init.asa[2] = serial_data[2];
 
-	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+	result = inv_serial_single_write(mlsl_handle, pdata->address,
 					 AK8972_REG_CNTL,
 					 AK8972_CNTL_MODE_POWER_DOWN);
-	ERROR_CHECK_FREE(result, pdata->private_data);
-	udelay(100);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 
-	return ML_SUCCESS;
+	udelay(100);
+	return INV_SUCCESS;
 }
 
 static int ak8972_exit(void *mlsl_handle,
 		       struct ext_slave_descr *slave,
 		       struct ext_slave_platform_data *pdata)
 {
-	MLOSFree(pdata->private_data);
-	return ML_SUCCESS;
+	kfree(pdata->private_data);
+	return INV_SUCCESS;
+}
+
+static int ak8972_suspend(void *mlsl_handle,
+		   struct ext_slave_descr *slave,
+		   struct ext_slave_platform_data *pdata)
+{
+	int result = INV_SUCCESS;
+	result =
+	    inv_serial_single_write(mlsl_handle, pdata->address,
+				    AK8972_REG_CNTL,
+				    AK8972_CNTL_MODE_POWER_DOWN);
+	msleep(1);		/* wait at least 100us */
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
+	return result;
 }
 
 static int ak8972_resume(void *mlsl_handle,
 		  struct ext_slave_descr *slave,
 		  struct ext_slave_platform_data *pdata)
 {
-	int result = ML_SUCCESS;
-	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+	int result = INV_SUCCESS;
+	result =
+	    inv_serial_single_write(mlsl_handle, pdata->address,
 				    AK8972_REG_CNTL,
 				    AK8972_CNTL_MODE_SINGLE_MEASUREMENT);
-	ERROR_CHECK(result);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 	return result;
 }
 
@@ -143,18 +176,28 @@ static int ak8972_read(void *mlsl_handle,
 	unsigned char regs[8];
 	unsigned char *stat = &regs[0];
 	unsigned char *stat2 = &regs[7];
-	int result = ML_SUCCESS;
-	int status = ML_SUCCESS;
+	int result = INV_SUCCESS;
+	int status = INV_SUCCESS;
 
 	result =
-	    MLSLSerialRead(mlsl_handle, pdata->address, AK8972_REG_ST1,
+	    inv_serial_read(mlsl_handle, pdata->address, AK8972_REG_ST1,
 			    8, regs);
-	ERROR_CHECK(result);
+	if (result) {
+		LOG_RESULT_LOCATION(result);
+		return result;
+	}
 
 	/* Always return the data and the status registers */
 	memcpy(data, &regs[1], 6);
 	data[6] = regs[0];
 	data[7] = regs[7];
+
+	/*
+	 * ST : data ready -
+	 * Measurement has been completed and data is ready to be read.
+	 */
+	if (*stat & 0x01)
+		status = INV_SUCCESS;
 
 	/*
 	 * ST2 : data error -
@@ -167,7 +210,7 @@ static int ak8972_read(void *mlsl_handle,
 	 * DERR bit is self-clearing when ST2 register is read.
 	 */
 	if (*stat2 & 0x04)
-		status = ML_ERROR_COMPASS_DATA_ERROR;
+		status = INV_ERROR_COMPASS_DATA_ERROR;
 	/*
 	 * ST2 : overflow -
 	 * the sum of the absolute values of all axis |X|+|Y|+|Z| < 2400uT.
@@ -178,7 +221,7 @@ static int ak8972_read(void *mlsl_handle,
 	 * HOFL bit clears when a new measurement starts.
 	 */
 	if (*stat2 & 0x08)
-		status = ML_ERROR_COMPASS_DATA_OVERFLOW;
+		status = INV_ERROR_COMPASS_DATA_OVERFLOW;
 	/*
 	 * ST : overrun -
 	 * the previous sample was not fetched and lost.
@@ -189,8 +232,8 @@ static int ak8972_read(void *mlsl_handle,
 	 * read.
 	 */
 	if (*stat & 0x02) {
-		/* status = ML_ERROR_COMPASS_DATA_UNDERFLOW; */
-		status = ML_SUCCESS;
+		/* status = INV_ERROR_COMPASS_DATA_UNDERFLOW; */
+		status = INV_SUCCESS;
 	}
 
 	/*
@@ -199,9 +242,15 @@ static int ak8972_read(void *mlsl_handle,
 	 *    - if stat is zero and stat2 is non zero.
 	 * Won't trigger if data is not ready and there was no error.
 	 */
-	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
-			AK8972_REG_CNTL, AK8972_CNTL_MODE_SINGLE_MEASUREMENT);
-	ERROR_CHECK(result);
+	if (*stat != 0x00 || *stat2 != 0x00) {
+		result = inv_serial_single_write(
+		    mlsl_handle, pdata->address,
+		    AK8972_REG_CNTL, AK8972_CNTL_MODE_SINGLE_MEASUREMENT);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
+			return result;
+		}
+	}
 
 	return status;
 }
@@ -213,14 +262,17 @@ static int ak8972_config(void *mlsl_handle,
 {
 	int result;
 	if (!data->data)
-		return ML_ERROR_INVALID_PARAMETER;
+		return INV_ERROR_INVALID_PARAMETER;
 
 	switch (data->key) {
 	case MPU_SLAVE_WRITE_REGISTERS:
-		result = MLSLSerialWrite(mlsl_handle, pdata->address,
+		result = inv_serial_write(mlsl_handle, pdata->address,
 					  data->len,
 					  (unsigned char *)data->data);
-		ERROR_CHECK(result);
+		if (result) {
+			LOG_RESULT_LOCATION(result);
+			return result;
+		}
 		break;
 	case MPU_SLAVE_CONFIG_ODR_SUSPEND:
 	case MPU_SLAVE_CONFIG_ODR_RESUME:
@@ -233,10 +285,10 @@ static int ak8972_config(void *mlsl_handle,
 	case MPU_SLAVE_CONFIG_IRQ_SUSPEND:
 	case MPU_SLAVE_CONFIG_IRQ_RESUME:
 	default:
-		return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+		return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 	};
 
-	return ML_SUCCESS;
+	return INV_SUCCESS;
 }
 
 static int ak8972_get_config(void *mlsl_handle,
@@ -244,9 +296,10 @@ static int ak8972_get_config(void *mlsl_handle,
 			     struct ext_slave_platform_data *pdata,
 			     struct ext_slave_config *data)
 {
+	struct ak8972_private_data *private_data = pdata->private_data;
 	int result;
 	if (!data->data)
-		return ML_ERROR_INVALID_PARAMETER;
+		return INV_ERROR_INVALID_PARAMETER;
 
 	switch (data->key) {
 	case MPU_SLAVE_READ_REGISTERS:
@@ -254,10 +307,27 @@ static int ak8972_get_config(void *mlsl_handle,
 			unsigned char *serial_data =
 			    (unsigned char *)data->data;
 			result =
-			    MLSLSerialRead(mlsl_handle, pdata->address,
+			    inv_serial_read(mlsl_handle, pdata->address,
 					    serial_data[0], data->len - 1,
 					    &serial_data[1]);
-			ERROR_CHECK(result);
+			if (result) {
+				LOG_RESULT_LOCATION(result);
+				return result;
+			}
+			break;
+		}
+	case MPU_SLAVE_READ_SCALE:
+		{
+			unsigned char *serial_data =
+			    (unsigned char *)data->data;
+			serial_data[0] = private_data->init.asa[0];
+			serial_data[1] = private_data->init.asa[1];
+			serial_data[2] = private_data->init.asa[2];
+			result = INV_SUCCESS;
+			if (result) {
+				LOG_RESULT_LOCATION(result);
+				return result;
+			}
 			break;
 		}
 	case MPU_SLAVE_CONFIG_ODR_SUSPEND:
@@ -275,16 +345,21 @@ static int ak8972_get_config(void *mlsl_handle,
 	case MPU_SLAVE_CONFIG_IRQ_SUSPEND:
 	case MPU_SLAVE_CONFIG_IRQ_RESUME:
 	default:
-		return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
+		return INV_ERROR_FEATURE_NOT_IMPLEMENTED;
 	};
 
-	return ML_SUCCESS;
+	return INV_SUCCESS;
 }
+
+static struct ext_slave_read_trigger ak8972_read_trigger = {
+	/*.reg              = */ 0x0A,
+	/*.value            = */ 0x01
+};
 
 static struct ext_slave_descr ak8972_descr = {
 	.init             = ak8972_init,
 	.exit             = ak8972_exit,
-	.suspend          = NULL,
+	.suspend          = ak8972_suspend,
 	.resume           = ak8972_resume,
 	.read             = ak8972_read,
 	.config           = ak8972_config,
@@ -292,14 +367,133 @@ static struct ext_slave_descr ak8972_descr = {
 	.name             = "ak8972",
 	.type             = EXT_SLAVE_TYPE_COMPASS,
 	.id               = COMPASS_ID_AK8972,
-	.reg              = 0x01,
-	.len              = 9,
+	.read_reg         = 0x01,
+	.read_len         = 9,
 	.endian           = EXT_SLAVE_LITTLE_ENDIAN,
 	.range            = {19660, 8000},
+	.trigger          = &ak8972_read_trigger,
 };
 
+static
 struct ext_slave_descr *ak8972_get_slave_descr(void)
 {
 	return &ak8972_descr;
 }
-EXPORT_SYMBOL(ak8972_get_slave_descr);
+
+/* -------------------------------------------------------------------------- */
+struct ak8972_mod_private_data {
+	struct i2c_client *client;
+	struct ext_slave_platform_data *pdata;
+};
+
+static unsigned short normal_i2c[] = { I2C_CLIENT_END };
+
+static int ak8972_mod_probe(struct i2c_client *client,
+			   const struct i2c_device_id *devid)
+{
+	struct ext_slave_platform_data *pdata;
+	struct ak8972_mod_private_data *private_data;
+	int result = 0;
+
+	dev_info(&client->adapter->dev, "%s: %s\n", __func__, devid->name);
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		result = -ENODEV;
+		goto out_no_free;
+	}
+
+	pdata = client->dev.platform_data;
+	if (!pdata) {
+		dev_err(&client->adapter->dev,
+			"Missing platform data for slave %s\n", devid->name);
+		result = -EFAULT;
+		goto out_no_free;
+	}
+
+	private_data = kzalloc(sizeof(*private_data), GFP_KERNEL);
+	if (!private_data) {
+		result = -ENOMEM;
+		goto out_no_free;
+	}
+
+	i2c_set_clientdata(client, private_data);
+	private_data->client = client;
+	private_data->pdata = pdata;
+
+	result = inv_mpu_register_slave(THIS_MODULE, client, pdata,
+					ak8972_get_slave_descr);
+	if (result) {
+		dev_err(&client->adapter->dev,
+			"Slave registration failed: %s, %d\n",
+			devid->name, result);
+		goto out_free_memory;
+	}
+
+	return result;
+
+out_free_memory:
+	kfree(private_data);
+out_no_free:
+	dev_err(&client->adapter->dev, "%s failed %d\n", __func__, result);
+	return result;
+
+}
+
+static int ak8972_mod_remove(struct i2c_client *client)
+{
+	struct ak8972_mod_private_data *private_data =
+		i2c_get_clientdata(client);
+
+	dev_dbg(&client->adapter->dev, "%s\n", __func__);
+	inv_mpu_unregister_slave(client, private_data->pdata,
+				ak8972_get_slave_descr);
+
+	kfree(private_data);
+	return 0;
+}
+
+static const struct i2c_device_id ak8972_mod_id[] = {
+	{ "ak8972", COMPASS_ID_AK8972 },
+	{}
+};
+
+MODULE_DEVICE_TABLE(i2c, ak8972_mod_id);
+
+static struct i2c_driver ak8972_mod_driver = {
+	.class = I2C_CLASS_HWMON,
+	.probe = ak8972_mod_probe,
+	.remove = ak8972_mod_remove,
+	.id_table = ak8972_mod_id,
+	.driver = {
+		   .owner = THIS_MODULE,
+		   .name = "ak8972_mod",
+		   },
+	.address_list = normal_i2c,
+};
+
+static int __init ak8972_mod_init(void)
+{
+	int res = i2c_add_driver(&ak8972_mod_driver);
+	pr_info("%s: Probe name %s\n", __func__, "ak8972_mod");
+	if (res)
+		pr_err("%s failed\n", __func__);
+	return res;
+}
+
+static void __exit ak8972_mod_exit(void)
+{
+	pr_info("%s\n", __func__);
+	i2c_del_driver(&ak8972_mod_driver);
+}
+
+module_init(ak8972_mod_init);
+module_exit(ak8972_mod_exit);
+
+MODULE_AUTHOR("Invensense Corporation");
+MODULE_DESCRIPTION("Driver to integrate AK8972 sensor with the MPU");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("ak8972_mod");
+
+/**
+ *  @}
+ */

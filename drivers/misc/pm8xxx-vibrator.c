@@ -32,7 +32,23 @@
 
 #define VIB_MAX_LEVEL_mV	3100
 #define VIB_MIN_LEVEL_mV	1200
+//ASUS BSP TIM-2011.09.25++
+#include <linux/microp_notify.h>
+#include <linux/microp_api.h>
+#include <linux/microp_pin_def.h>
+#include <linux/delay.h>
+//Tim++
+#include <linux/proc_fs.h>
+#include <asm/uaccess.h>
+//Tim--
+static int vibrator_mode = 0;
 
+
+enum define_vibrator_mode{
+    a60k=0,
+    P01,
+    };
+//ASUS BSP TIM-2011.09.25--
 struct pm8xxx_vib {
 	struct hrtimer vib_timer;
 	struct timed_output_dev timed_dev;
@@ -163,7 +179,7 @@ static int pm8xxx_vib_set(struct pm8xxx_vib *vib, int on)
 
 	if (on) {
 		val = vib->reg_vib_drv;
-		val |= ((vib->level << VIB_DRV_SEL_SHIFT) & VIB_DRV_SEL_MASK);
+		val |= ((vib_dev->level << VIB_DRV_SEL_SHIFT) & VIB_DRV_SEL_MASK);
 		rc = pm8xxx_vib_write_u8(vib, val, VIB_DRV);
 		if (rc < 0)
 			return rc;
@@ -183,30 +199,69 @@ static int pm8xxx_vib_set(struct pm8xxx_vib *vib, int on)
 
 static void pm8xxx_vib_enable(struct timed_output_dev *dev, int value)
 {
-	struct pm8xxx_vib *vib = container_of(dev, struct pm8xxx_vib,
-					 timed_dev);
-	unsigned long flags;
+    int ret;
+    struct pm8xxx_vib *vib = container_of(dev, struct pm8xxx_vib,
+                timed_dev);
+    unsigned long flags;
+    if (vibrator_mode == a60k)
+    {
+        retry:
+	        spin_lock_irqsave(&vib->lock, flags);
+	        if (hrtimer_try_to_cancel(&vib->vib_timer) < 0) {
+		        spin_unlock_irqrestore(&vib->lock, flags);
+		        cpu_relax();
+		        goto retry;
+	        }
+        
+	    if (value == 0)
+		    vib->state = 0;
+	    else {
+            if (value >=10000){
+                vib_dev->level = 30;
+                value = value - 10000;
+                printk(DBGMSK_BL_G0"[VIBRATOR] Voltage=3V  msec=%d\n",value);
+            }
+            else if (value <10000){  
+                if (value % 2 ){
+                    vib_dev->level = 30;
+                    value = value - 1;
+                    printk(DBGMSK_BL_G0"[VIBRATOR] Voltage=3V  msec=%d\n",value);
+                }
+                else{
+                    vib_dev->level = 20;
+                    printk(DBGMSK_BL_G0"[VIBRATOR] Voltage=2V  msec=%d\n",value);
+                }
+            }
+		    value = (value > vib->pdata->max_timeout_ms ?
+				    vib->pdata->max_timeout_ms : value);
+		    vib->state = 1;
+		    hrtimer_start(&vib->vib_timer,
+			        ktime_set(value / 1000, (value % 1000) * 1000000),
+			        HRTIMER_MODE_REL);
+	    }
+	    spin_unlock_irqrestore(&vib->lock, flags);
+	    schedule_work(&vib->work);
+    }
+    else if (vibrator_mode == P01)
+    {
+        if (value >=10000){
+            value = value - 10000;
+            printk(DBGMSK_BL_G0"[VIBRATOR] p02  msec=%d\n",value);
+        }
+        else if (value <10000){  
+            printk(DBGMSK_BL_G0"[VIBRATOR] p02  msec=%d\n",value);
+        }
+        value = (value > vib->pdata->max_timeout_ms ?
+        vib->pdata->max_timeout_ms : value);
+        ret = AX_MicroP_setGPIOOutputPin(OUT_uP_VIB_EN,1);
+        if (ret<0)
+                pr_err("%s: Error set P01 vibrator pin \n", __func__);
 
-retry:
-	spin_lock_irqsave(&vib->lock, flags);
-	if (hrtimer_try_to_cancel(&vib->vib_timer) < 0) {
-		spin_unlock_irqrestore(&vib->lock, flags);
-		cpu_relax();
-		goto retry;
-	}
-
-	if (value == 0)
-		vib->state = 0;
-	else {
-		value = (value > vib->pdata->max_timeout_ms ?
-				 vib->pdata->max_timeout_ms : value);
-		vib->state = 1;
-		hrtimer_start(&vib->vib_timer,
-			      ktime_set(value / 1000, (value % 1000) * 1000000),
-			      HRTIMER_MODE_REL);
-	}
-	spin_unlock_irqrestore(&vib->lock, flags);
-	schedule_work(&vib->work);
+        msleep(value);
+        ret = AX_MicroP_setGPIOOutputPin(OUT_uP_VIB_EN,0);
+        if (ret<0)
+                pr_err("%s: Error set P01 vibrator pin \n", __func__);
+    }
 }
 
 static void pm8xxx_vib_update(struct work_struct *work)
@@ -327,7 +382,105 @@ err_read_vib:
 	kfree(vib);
 	return rc;
 }
+//ASUS BSP TIM-2011.09.25++
 
+static int change_vibrator_mode(struct notifier_block *this, unsigned long event, void *ptr)
+{
+        switch (event) {
+        case P01_ADD:
+                printk("[ADD_vibrator] Disable vibrator of a60k \r\n");
+                vibrator_mode = P01;
+
+                return NOTIFY_DONE;
+        case P01_REMOVE:
+                printk("[REMOVE_vibrator] Enable vibrator of a60k \r\n");
+                vibrator_mode = a60k;
+
+                return NOTIFY_DONE;
+        default:
+                return NOTIFY_DONE;
+        }
+}
+ 
+static struct notifier_block my_hs_notifier = {
+        .notifier_call = change_vibrator_mode,
+        .priority = VIBRATOR_MP_NOTIFY,
+};
+/*
+//ASUS BSP TIM-2011.09.25--
+
+//Tim++ change voltage of vibrator
+#ifdef  CONFIG_PROC_FS
+#define VIBRATOR_VOLTAGE  "driver/vibrator_voltage"
+static struct proc_dir_entry *vibrator_voltage_entry;
+
+#include <linux/syscalls.h>
+#include <linux/fs.h>
+#include <linux/file.h>
+static mm_segment_t oldfs;
+static void initKernelEnv(void)
+{
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+}
+
+static void deinitKernelEnv(void)
+{
+    set_fs(oldfs);
+}
+    
+static ssize_t vibrator_voltage_proc_write(struct file *filp, const char *buff, size_t len, loff_t *off)
+{    
+    char messages[256];
+    memset(messages, 0, sizeof(messages));
+    if (len > 256)
+    {
+        len = 256;
+    }
+    if (copy_from_user(messages, buff, len))
+    {
+        return -EFAULT;
+    }
+
+    initKernelEnv();
+    if(strncmp(messages, "2", 1) == 0)
+    {
+        vib_dev->level = 20;
+        printk("[vibrator] vibrator_voltage = 2V\n");
+    }
+    else if(strncmp(messages, "3", 1) == 0)
+    {
+        vib_dev->level = 30;
+        printk("[vibrator] vibrator_voltage = 3V\n");
+    }
+    
+    deinitKernelEnv(); 
+    return len;
+}
+
+static struct file_operations vibrator_voltage_proc_ops = {
+    //.read = audio_debug_proc_read,
+    .write = vibrator_voltage_proc_write,
+};
+
+static void create_vibrator_voltage_proc_file(void)
+{
+    printk("[Vibrator] create_vibrator_proc_file\n");
+    vibrator_voltage_entry = create_proc_entry(VIBRATOR_VOLTAGE, 0666, NULL);
+    if (vibrator_voltage_entry) {
+        vibrator_voltage_entry->proc_fops = &vibrator_voltage_proc_ops;
+    }
+}
+
+static void remove_vibrator_voltage_proc_file(void)
+{
+    extern struct proc_dir_entry proc_root;
+    printk("[Vibrator] remove_vibrator_proc_file\n");   
+    remove_proc_entry(VIBRATOR_VOLTAGE, &proc_root);
+}
+#endif //#ifdef CONFIG_PROC_FS
+//Tim-- change voltage of vibrator
+*/
 static int __devexit pm8xxx_vib_remove(struct platform_device *pdev)
 {
 	struct pm8xxx_vib *vib = platform_get_drvdata(pdev);
@@ -336,6 +489,7 @@ static int __devexit pm8xxx_vib_remove(struct platform_device *pdev)
 	hrtimer_cancel(&vib->vib_timer);
 	timed_output_dev_unregister(&vib->timed_dev);
 	platform_set_drvdata(pdev, NULL);
+    //remove_vibrator_voltage_proc_file();
 	kfree(vib);
 
 	return 0;
@@ -355,6 +509,10 @@ static struct platform_driver pm8xxx_vib_driver = {
 
 static int __init pm8xxx_vib_init(void)
 {
+//ASUS BSP TIM-2011.09.25++
+    register_microp_notifier(&my_hs_notifier);
+    //create_vibrator_voltage_proc_file();
+//ASUS BSP TIM-2011.09.25++
 	return platform_driver_register(&pm8xxx_vib_driver);
 }
 module_init(pm8xxx_vib_init);
@@ -362,6 +520,7 @@ module_init(pm8xxx_vib_init);
 static void __exit pm8xxx_vib_exit(void)
 {
 	platform_driver_unregister(&pm8xxx_vib_driver);
+    unregister_microp_notifier(&my_hs_notifier);
 }
 module_exit(pm8xxx_vib_exit);
 

@@ -29,6 +29,10 @@
 #include <mach/pm8921-mic_bias.h>
 #include <mach/simple_remote_msm8960_pf.h>
 
+// +++ ASUS_BSP : miniporting : support platform info in kernel
+#include <linux/kernel.h>
+// --- ASUS_BSP : miniporting : support platform info in kernel
+
 #define REG_HWREV		0x002  /* PMIC4 revision */
 #define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
 
@@ -956,6 +960,11 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 			&& version != PM8XXX_VERSION_8922
 			&& version != PM8XXX_VERSION_8917);
 	}
+
+	// +++ ASUS_BSP : support platform info in kernel
+	sprintf(g_asus_plat_info.pmic_ver, "PMIC_V%s",revision_name);
+	printk("[KERNEL] g_asus_plat_info.pmic_ver = %s \n",g_asus_plat_info.pmic_ver);
+	// --- ASUS_BSP : support platform info in kernel
 
 	/* Log human readable restart reason */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_PM8921_PON_CNTRL_3, &val, 1);

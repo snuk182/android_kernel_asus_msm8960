@@ -2889,8 +2889,10 @@ static struct branch_clk csi2_phy_clk = {
 
 static struct clk *pix_rdi_mux_map[] = {
 	[0] = &csi0_clk.c,
-	[1] = &csi1_clk.c,
-	[2] = &csi2_clk.c,
+//ASUS_BSP +++ LiJen "[A68][13M][NA][Others]Mini porting for 13M camera with ISP"  
+//	[1] = &csi1_clk.c,
+//	[2] = &csi2_clk.c,
+//ASUS_BSP --- LiJen "[A68][13M][NA][Others]Mini porting for 13M camera with ISP"
 	NULL,
 };
 

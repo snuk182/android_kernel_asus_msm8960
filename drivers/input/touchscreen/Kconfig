@@ -67,6 +67,18 @@ config TOUCHSCREEN_ATMEL_MAXTOUCH
          To compile this driver as a module, choose M here: the
          module will be called maXTouch.
 
+config TOUCHSCREEN_ATMEL_MAXTOUCH_PAD
+       tristate "Atmel maXTouch based touchscreens for Padstation"
+       depends on I2C
+       default n
+       help
+         Say Y here if you have an Atmel Maxtouch based touchscreen for Padstation.
+
+         If unsure, say N.
+
+         To compile this driver as a module, choose M here: the
+         module will be called maXTouchPad.
+
 config TOUCHSCREEN_AD7879
 	tristate "Analog Devices AD7879-1/AD7889-1 touchscreen interface"
 	help

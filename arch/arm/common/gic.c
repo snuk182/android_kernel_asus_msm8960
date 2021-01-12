@@ -82,6 +82,8 @@ struct gic_chip_data {
 #endif
 };
 
+int gic_irq_cnt,gic_resume_irq[]={}; //Ledger
+
 static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 
 #ifdef CONFIG_CPU_PM
@@ -252,6 +254,7 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	unsigned long pending[32];
 	void __iomem *base = gic_data_dist_base(gic);
 
+        gic_irq_cnt=0;  //Ledger
 	if (!msm_show_resume_irq_mask)
 		return;
 
@@ -268,6 +271,10 @@ static void gic_show_resume_irq(struct gic_chip_data *gic)
 	     i < gic->max_irq;
 	     i = find_next_bit(pending, gic->max_irq, i+1)) {
 		log_base_wakeup_reason(i + gic->irq_offset);
+//++Ledger
+                gic_resume_irq[gic_irq_cnt]=i + gic->irq_offset-GIC_SPI_START;
+                gic_irq_cnt++;
+//--Ledger
 	}
 }
 

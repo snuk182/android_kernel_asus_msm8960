@@ -10,3 +10,10 @@ config SENSORS_SSC
 	  Add support for sensors SSC driver.
 	  This driver is used for exercising sensors use case,
 	  time syncing with ADSP clock.
+
+config SENSORS_CM3623
+	bool "PS ALS CM3623 support"
+	default n
+	---help---
+	  ASUS SENSORS folder
+

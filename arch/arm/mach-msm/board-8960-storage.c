@@ -276,7 +276,10 @@ static unsigned int sdc1_sup_clk_rates[] = {
 
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
 static unsigned int sdc3_sup_clk_rates[] = {
-	400000, 24000000, 48000000, 96000000, 192000000
+//ASUS_BSP +++ Josh_Liao "downgrade for sd compatibility"		
+	400000, 24000000, 48000000
+//	400000, 24000000, 48000000, 96000000, 192000000
+//ASUS_BSP --- Josh_Liao "downgrade for sd compatibility"	
 };
 #endif
 
@@ -335,9 +338,13 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 #endif
 	.is_status_gpio_active_low = true,
 	.xpc_cap	= 1,
+//ASUS_BSP +++ Josh_Liao "downgrade for sd compatibility"
+#if 0
 	.uhs_caps	= (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
 			MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_DDR50 |
 			MMC_CAP_UHS_SDR104 | MMC_CAP_MAX_CURRENT_600),
+#endif
+//ASUS_BSP --- Josh_Liao "downgrade for sd compatibility"
 	.mpm_sdiowakeup_int = MSM_MPM_PIN_SDC3_DAT1,
 	.msm_bus_voting_data = &sps_to_ddr_bus_voting_data,
 };

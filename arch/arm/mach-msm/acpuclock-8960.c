@@ -195,10 +195,24 @@ static struct acpu_level acpu_freq_tbl_fast[] __initdata = {
 	{ 0, { 0 } }
 };
 
+//+++ ASUS_BSP Allen1_Huang: ACPU run 384mhz to reduce power consumption in charger mode
+#ifdef CONFIG_CHARGER_MODE
+static struct acpu_level acpu_freq_tbl_charger[] __initdata = {
+	{ 1, {   384000, PLL_8, 0, 0x00 }, L2(0),   950000, AVS(0x4000FF) },
+	{ 0, { 0 } }
+};
+#endif
+//--- ASUS_BSP Allen1_Huang: ACPU run 384mhz to reduce power consumption in charger mode
+
 static struct pvs_table pvs_tables[NUM_SPEED_BINS][NUM_PVS] __initdata = {
 [0][PVS_SLOW]    = { acpu_freq_tbl_slow, sizeof(acpu_freq_tbl_slow),     0 },
 [0][PVS_NOMINAL] = { acpu_freq_tbl_nom,  sizeof(acpu_freq_tbl_nom),  25000 },
 [0][PVS_FAST]    = { acpu_freq_tbl_fast, sizeof(acpu_freq_tbl_fast), 25000 },
+//+++ ASUS_BSP Allen1_Huang: ACPU run 384mhz to reduce power consumption in charger mode
+#ifdef CONFIG_CHARGER_MODE
+[0][PVS_CHARGER] = { acpu_freq_tbl_charger, sizeof(acpu_freq_tbl_charger), 0 },
+#endif
+//--- ASUS_BSP Allen1_Huang: ACPU run 384mhz to reduce power consumption in charger mode
 };
 
 static struct acpuclk_krait_params acpuclk_8960_params __initdata = {

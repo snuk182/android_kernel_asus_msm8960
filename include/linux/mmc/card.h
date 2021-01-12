@@ -366,6 +366,7 @@ struct mmc_card {
 	struct mmc_wr_pack_stats wr_pack_stats; /* packed commands stats*/
 
 	struct mmc_bkops_info	bkops_info;
+	bool fua_forbidden;
 };
 
 /*

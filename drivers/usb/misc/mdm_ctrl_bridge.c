@@ -82,6 +82,19 @@ struct ctrl_bridge {
 
 static struct ctrl_bridge	*__dev[MAX_BRIDGE_DEVICES];
 
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+#define DUN_DATA_ID 0
+#define ACM_CTRL_RTS (1 << 1)
+static bool is_open_asus = false;
+static bool is_open_usb = false;
+static int ctrl_bridge_set_cbits_asus(unsigned int id, unsigned int cbits);
+static bool is_bridge_open(void);
+#else
+static const bool is_open_asus = false;
+#endif
+// ASUS_BSP+++ Wenli "tty device for AT command"
+
 static int get_ctrl_bridge_chid(char *xport_name)
 {
 	struct ctrl_bridge	*dev;
@@ -324,6 +337,15 @@ int ctrl_bridge_open(struct bridge *brdg)
 
 	dev = __dev[ch_id];
 	dev->brdg = brdg;
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	if (is_bridge_open()) {
+		is_open_usb = true;
+		return 0;
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
+
 	dev->snd_encap_cmd = 0;
 	dev->get_encap_res = 0;
 	dev->resp_avail = 0;
@@ -332,7 +354,11 @@ int ctrl_bridge_open(struct bridge *brdg)
 
 	if (brdg->ops.send_cbits)
 		brdg->ops.send_cbits(brdg->ctx, dev->cbits_tohost);
-
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	is_open_usb = true;
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	return 0;
 }
 EXPORT_SYMBOL(ctrl_bridge_open);
@@ -349,9 +375,24 @@ void ctrl_bridge_close(unsigned int id)
 		return;
 
 	dev_dbg(&dev->intf->dev, "%s:\n", __func__);
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	is_open_usb = false;
+	if (!is_bridge_open()) {
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 
 	ctrl_bridge_set_cbits(dev->brdg->ch_id, 0);
 
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	} else {
+		struct bridge *brdg = dev->brdg;
+		if (brdg && (0 & ACM_CTRL_DTR) && brdg->ops.send_cbits)
+		brdg->ops.send_cbits(brdg->ctx, dev->cbits_tohost);
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	dev->brdg = NULL;
 }
 EXPORT_SYMBOL(ctrl_bridge_close);
@@ -818,6 +859,102 @@ void ctrl_bridge_disconnect(unsigned int id)
 	usb_free_urb(dev->readurb);
 	usb_free_urb(dev->inturb);
 }
+
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+int ctrl_bridge_open_asus(unsigned int ch_id)
+{
+	struct ctrl_bridge	*dev;
+
+	dev = __dev[ch_id];
+	if (!dev) {
+		err("dev is null\n");
+		return -ENODEV;
+	}
+
+	if (is_bridge_open()) {
+		is_open_asus = true;
+		ctrl_bridge_set_cbits_asus(ch_id, ACM_CTRL_DTR);
+		ctrl_bridge_set_cbits_asus(ch_id, ACM_CTRL_RTS | ACM_CTRL_DTR);
+		return 0;
+	}
+
+	dev->brdg = NULL;
+	dev->snd_encap_cmd = 0;
+	dev->get_encap_res = 0;
+	dev->resp_avail = 0;
+	dev->set_ctrl_line_sts = 0;
+	dev->notify_ser_state = 0;
+
+	is_open_asus = true;
+	ctrl_bridge_set_cbits_asus(ch_id, ACM_CTRL_DTR);
+	ctrl_bridge_set_cbits_asus(ch_id, ACM_CTRL_RTS | ACM_CTRL_DTR);
+
+	return 0;
+}
+EXPORT_SYMBOL(ctrl_bridge_open_asus);
+
+void ctrl_bridge_close_asus(unsigned int id)
+{
+	struct ctrl_bridge	*dev;
+
+	if (id >= MAX_BRIDGE_DEVICES)
+		return;
+
+	dev  = __dev[id];
+	if (!dev)
+		return;
+
+	dev_dbg(&dev->intf->dev, "%s:\n", __func__);
+
+	is_open_asus = false;
+	if (!is_bridge_open()) {
+		ctrl_bridge_set_cbits_asus(ch_id, ACM_CTRL_RTS);
+		ctrl_bridge_set_cbits_asus(ch_id, 0);
+		usb_unlink_anchored_urbs(&dev->tx_submitted);
+	}
+}
+EXPORT_SYMBOL(ctrl_bridge_close_asus);
+
+static int ctrl_bridge_set_cbits_asus(unsigned int id, unsigned int cbits)
+{
+	struct ctrl_bridge	*dev;
+	int			retval;
+	struct bridge		*brdg;
+
+	if (id >= MAX_BRIDGE_DEVICES)
+		return -EINVAL;
+
+	dev = __dev[id];
+	if (!dev)
+		return -ENODEV;
+
+	pr_debug("%s: dev[id] =%u cbits : %u\n", __func__, id, cbits);
+
+	dev->cbits_tomdm = cbits;
+
+	retval = ctrl_bridge_write(id, NULL, 0);
+
+	brdg = dev->brdg;
+	/* if DTR is high, update latest modem info to host */
+	if (brdg && (cbits & ACM_CTRL_DTR) && brdg->ops.send_cbits)
+		brdg->ops.send_cbits(brdg->ctx, dev->cbits_tohost);
+
+	return retval;
+}
+
+void ctrl_bridge_init_asus(void)
+{
+	is_open_asus = false;
+	is_open_usb = false;
+}
+
+static bool is_bridge_open(void)
+{
+	return (is_open_asus || is_open_usb);
+}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 
 int ctrl_bridge_init(void)
 {

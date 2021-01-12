@@ -22,6 +22,37 @@
 
 #include "smd_private.h"
 
+// +++ ASUS_BSP : miniporting : support platform info in kernel
+#include <linux/kernel.h>
+struct asus_platform_info g_asus_plat_info={
+	.cpu_ver = "Unknown",
+	.pmic_ver = "Unknown",
+	.hdcp=0,
+	.cpu_revision = 0x0,  //Unknown
+	.cpu_type = 0x0, //Unknown
+	.dc=0,
+};
+
+char *CPU_VER[] = {
+	[CPU_REV_UNKNOWN] = "CPU_REV_UNKNOWN",
+	[CPU_REV_V1] = "V1",
+	[CPU_REV_V2] = "V2",
+	[CPU_REV_V3] = "V3",
+	[CPU_REV_V4] = "V4",
+	[CPU_REV_V5] = "V5",
+	[CPU_REV_V6] = "V6",
+};
+char *PMIC_VER[] = {
+	[PMIC_VER_UNKNOWN] = "PMIC_Unknown",
+	[PMIC_VER_V1] = "PMIC_V1.1",
+	[PMIC_VER_V2] = "PMIC_V2.0",
+	[PMIC_VER_V3] = "PMIC_V3.0",
+	[PMIC_VER_V4] = "PMIC_V4.0",
+	[PMIC_VER_V5] = "PMIC_V5.0",
+	[PMIC_VER_V6] = "PMIC_V6.0",
+};
+// --- ASUS_BSP : miniporting : support platform info in kernel
+
 #define BUILD_ID_LENGTH 32
 
 enum {
@@ -864,6 +895,16 @@ int __init socinfo_init(void)
 		break;
 	}
 
+	// +++ ASUS_BSP : support platform info in kernel
+	sprintf(g_asus_plat_info.cpu_ver, "CPU_V%d.%d",SOCINFO_VERSION_MAJOR(socinfo->v1.version),SOCINFO_VERSION_MINOR(socinfo->v1.version));
+	printk("[KERNEL] g_asus_plat_info.cpu_ver = %s \n",g_asus_plat_info.cpu_ver);
+	if(socinfo->v2.raw_id==0x6B1)
+	{
+		g_asus_plat_info.hdcp=1;
+	}
+	printk("[KERNEL] g_asus_plat_info.hdcp = %d \n",g_asus_plat_info.hdcp);
+	// --- ASUS_BSP : support platform info in kernel
+	
 	return 0;
 }
 

@@ -929,7 +929,10 @@ struct msm_stats_buf {
 #define MSM_V4L2_CAM_OP_RAW             (MSM_V4L2_CAM_OP_DEFAULT+5)
 /* camera operation mode for jpeg snapshot - one frame output queue */
 #define MSM_V4L2_CAM_OP_JPEG_CAPTURE    (MSM_V4L2_CAM_OP_DEFAULT+6)
-
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+/* camera operation mode for video recording - two frame output queues */
+#define MSM_V4L2_CAM_OP_VIDEO_FULL_HD   (MSM_V4L2_CAM_OP_DEFAULT+7)	
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"		//ASUS_BSP +++ Stimber "Add for FULL HD resolution recording"
 
 #define MSM_V4L2_VID_CAP_TYPE	0
 #define MSM_V4L2_STREAM_ON		1
@@ -1013,41 +1016,145 @@ struct msm_snapshot_pp_status {
 #define CFG_START_STREAM              44
 #define CFG_STOP_STREAM               45
 #define CFG_GET_CSI_PARAMS            46
-#define CFG_POWER_UP                  47
-#define CFG_POWER_DOWN                48
-#define CFG_WRITE_I2C_ARRAY           49
-#define CFG_READ_I2C_ARRAY            50
-#define CFG_PCLK_CHANGE               51
-#define CFG_CONFIG_VREG_ARRAY         52
-#define CFG_CONFIG_CLK_ARRAY          53
-#define CFG_GPIO_OP                   54
-#define CFG_SET_VISION_MODE           55
-#define CFG_SET_VISION_AE             56
-#define CFG_HDR_UPDATE                57
-#define CFG_ACTUAOTOR_REG_INIT        58
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#define CFG_ISP_AF_START		47
+#define CFG_GET_ISP_AF_RESULT		48
+#define CFG_SET_ISP_LED_MODE		49	//ASUS_BSP LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+#define CFG_SET_ISP_EFFECT_MODE	50   //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Effect mode in 8M camera with ISP"	
+#define CFG_SET_ISP_WB_MODE	51 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"	
+#define CFG_SET_ISP_EV_MODE	52 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement EV mode in 8M camera with ISP"
+#define CFG_SET_ISP_SCENE_MODE	53 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"	
+#define CFG_SET_ISP_CAF_MODE	54 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement CAF mode in 8M camera with ISP"	
+#define CFG_SET_ISP_AECLOCK_MODE	55 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AEC Lock mode in 8M camera with ISP"
+#define CFG_SET_ISP_AWBLOCK_MODE	56 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AWB Lock mode in 8M camera with ISP"
+#define CFG_SET_ISP_ISO_MODE	57 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+#define CFG_SET_ISP_FLICKER_MODE	58 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+#define CFG_GET_ISP_EXIF		59	//ASUS_BSP Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+#define CFG_POWER_UP                  60
+#define CFG_POWER_DOWN                61
+#define CFG_WRITE_I2C_ARRAY           62
+#define CFG_READ_I2C_ARRAY            63
+#define CFG_PCLK_CHANGE               64
+#define CFG_CONFIG_VREG_ARRAY         65
+#define CFG_CONFIG_CLK_ARRAY          66
+#define CFG_GPIO_OP                   67
+#define CFG_SET_VISION_MODE           68
+#define CFG_SET_VISION_AE             69
+#define CFG_HDR_UPDATE                70
+#define CFG_ACTUAOTOR_REG_INIT        71
 /* extension begin */
-#define CFG_SET_GPIO_CTRL	       59
-#define CFG_SET_WRITE_CMD	        60
-#define CFG_SET_READ_CMD		 61
-#define CFG_GET_ROM			62
+#define CFG_SET_GPIO_CTRL	       72
+#define CFG_SET_WRITE_CMD	        73
+#define CFG_SET_READ_CMD		 74
+#define CFG_GET_ROM			75
 /* extension end */
-#define CFG_MAX                       63
+#define CFG_MAX                       76
 
 
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
 
-#define SENSOR_PREVIEW_MODE		0
-#define SENSOR_SNAPSHOT_MODE		1
-#define SENSOR_RAW_SNAPSHOT_MODE	2
-#define SENSOR_HFR_60FPS_MODE 3
-#define SENSOR_HFR_90FPS_MODE 4
-#define SENSOR_HFR_120FPS_MODE 5
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  LED_MODE_OFF,
+  LED_MODE_AUTO,
+  LED_MODE_ON,
+  LED_MODE_TORCH,
+
+  /*new mode above should be added above this line*/
+  LED_MODE_MAX
+} led_mode_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  CAMERA_WB_MIN_MINUS_1,
+  CAMERA_WB_AUTO = 1,  /* This list must match aeecamera.h */
+  CAMERA_WB_CUSTOM,
+  CAMERA_WB_INCANDESCENT,
+  CAMERA_WB_FLUORESCENT,
+  CAMERA_WB_DAYLIGHT,
+  CAMERA_WB_CLOUDY_DAYLIGHT,
+  CAMERA_WB_TWILIGHT,
+  CAMERA_WB_SHADE,
+  CAMERA_WB_OFF,
+  CAMERA_WB_MAX_PLUS_1
+} config3a_wb_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"
+
+//ASUS_BSP +++ LiJen "[ov2720] porting Qcamera server for 8M camera"
+// Copy from vendor\qcom\proprietary\mm-camera\server\hardware\sensor\Sensor_interface.h
+typedef enum {
+  SENSOR_MODE_SNAPSHOT,
+  SENSOR_MODE_RAW_SNAPSHOT,
+  SENSOR_MODE_PREVIEW,
+  SENSOR_MODE_VIDEO,
+  SENSOR_MODE_VIDEO_FULL_HD,	//ASUS_BSP +++ Stimber "Add Full HD resolution for recording"
+  SENSOR_MODE_HFR_60FPS,
+  SENSOR_MODE_HFR_90FPS,
+  SENSOR_MODE_HFR_120FPS,
+  SENSOR_MODE_HFR_150FPS,
+  SENSOR_MODE_ZSL,
+  SENSOR_MODE_INVALID,
+} sensor_mode_t;
+
+// this define only for target
+#define SENSOR_PREVIEW_MODE		SENSOR_MODE_PREVIEW
+#define SENSOR_SNAPSHOT_MODE		SENSOR_MODE_SNAPSHOT
+#define SENSOR_VIDEO_MODE			SENSOR_MODE_VIDEO
+#define SENSOR_RAW_SNAPSHOT_MODE	SENSOR_MODE_RAW_SNAPSHOT
+#define SENSOR_HFR_60FPS_MODE 	SENSOR_MODE_HFR_60FPS
+#define SENSOR_HFR_90FPS_MODE 	SENSOR_MODE_HFR_90FPS
+#define SENSOR_HFR_120FPS_MODE 	SENSOR_MODE_HFR_120FPS
+//ASUS_BSP --- LiJen "[ov2720] porting Qcamera server for 8M camera"
+
+ //ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  CAMERA_BESTSHOT_OFF = 0,
+  CAMERA_BESTSHOT_AUTO = 1,
+  CAMERA_BESTSHOT_LANDSCAPE = 2,
+  CAMERA_BESTSHOT_SNOW,
+  CAMERA_BESTSHOT_BEACH,
+  CAMERA_BESTSHOT_SUNSET,
+  CAMERA_BESTSHOT_NIGHT,
+  CAMERA_BESTSHOT_PORTRAIT,
+  CAMERA_BESTSHOT_BACKLIGHT,
+  CAMERA_BESTSHOT_SPORTS,
+  CAMERA_BESTSHOT_ANTISHAKE,
+  CAMERA_BESTSHOT_FLOWERS,
+  CAMERA_BESTSHOT_CANDLELIGHT,
+  CAMERA_BESTSHOT_FIREWORKS,
+  CAMERA_BESTSHOT_PARTY,
+  CAMERA_BESTSHOT_NIGHT_PORTRAIT,
+  CAMERA_BESTSHOT_THEATRE,
+  CAMERA_BESTSHOT_ACTION,
+  CAMERA_BESTSHOT_AR,
+  CAMERA_BESTSHOT_MAX
+} camera_bestshot_mode_type;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 
 #define SENSOR_QTR_SIZE			0
 #define SENSOR_FULL_SIZE		1
 #define SENSOR_QVGA_SIZE		2
 #define SENSOR_INVALID_SIZE		3
+
+#define CAMERA_EFFECT_OFF		0
+#define CAMERA_EFFECT_MONO		1
+#define CAMERA_EFFECT_NEGATIVE		2
+#define CAMERA_EFFECT_SOLARIZE		3
+#define CAMERA_EFFECT_SEPIA		4
+#define CAMERA_EFFECT_POSTERIZE		5
+#define CAMERA_EFFECT_WHITEBOARD	6
+#define CAMERA_EFFECT_BLACKBOARD	7
+#define CAMERA_EFFECT_AQUA		8
+#define CAMERA_EFFECT_EMBOSS		9
+#define CAMERA_EFFECT_SKETCH		10
+#define CAMERA_EFFECT_NEON		11
+#define CAMERA_EFFECT_MAX		12
 
 /* QRD */
 #define CAMERA_EFFECT_BW		10
@@ -1176,15 +1283,18 @@ enum msm_v4l2_expo_metering_mode {
 	MSM_V4L2_EXP_SPOT_METERING,
 };
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 enum msm_v4l2_iso_mode {
 	MSM_V4L2_ISO_AUTO = 0,
 	MSM_V4L2_ISO_DEBLUR,
+	MSM_V4L2_ISO_50,        //ASUS_BSP LiJen "[A60K][8M][NA][Others]add camera ISO 50 and remove ISO 1600"
 	MSM_V4L2_ISO_100,
 	MSM_V4L2_ISO_200,
 	MSM_V4L2_ISO_400,
 	MSM_V4L2_ISO_800,
-	MSM_V4L2_ISO_1600,
+	//MSM_V4L2_ISO_1600,    //ASUS_BSP LiJen "[A60K][8M][NA][Others]add camera ISO 50 and remove ISO 1600"
 };
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 
 enum msm_v4l2_wb_mode {
 	MSM_V4L2_WB_OFF,
@@ -1239,9 +1349,34 @@ struct exp_gain_cfg {
 	uint16_t fgain;
 };
 
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+/* Auto focus mode, used for CAMERA_PARM_AF_MODE */
+typedef enum {
+  AF_MODE_UNCHANGED = -1,
+  AF_MODE_NORMAL    = 0,
+  AF_MODE_MACRO,
+  AF_MODE_AUTO,
+  AF_MODE_CAF,
+  AF_MODE_INFINITY,
+  AF_MODE_MAX
+} isp3a_af_mode_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+
 struct focus_cfg {
 	int32_t steps;
 	int dir;
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	uint16_t af_enable;	// 1:enable af, 0:disable af
+	uint16_t af_continue; // 1:ebale continue af, 0:disable continue af
+	isp3a_af_mode_t mode;  //ASUS_BSP LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+	uint16_t result;
+// For any point autofocus	
+	int16_t coordinate_x;
+	int16_t coordinate_y;
+	int16_t rectangle_h;
+	int16_t rectangle_w;
+//ASUS_BSP ---Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 };
 
 struct fps_cfg {
@@ -1310,6 +1445,7 @@ struct sensor_calib_data {
 enum msm_sensor_resolution_t {
 	MSM_SENSOR_RES_FULL,
 	MSM_SENSOR_RES_QTR,
+        MSM_SENSOR_RES_FULL_HD,	//Stimber "Add Full HD resolution for recording" //ASUS_BSP LiJen "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	MSM_SENSOR_RES_2,
 	MSM_SENSOR_RES_3,
 	MSM_SENSOR_RES_4,
@@ -1572,6 +1708,14 @@ struct ispif_cfg_data {
 	} cfg;
 };
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+struct exif_cfg {
+	uint16_t iso;
+	uint32_t  exp_time_num;    // Numerator
+    uint32_t  exp_time_denom;  // Denominator
+};
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+
 /* extension begin */
 enum sensor_gpio_ctrl_type {
 	SENSOR_GPIO_CTRL_RESET,
@@ -1685,7 +1829,12 @@ struct sensor_cfg_data {
 	int mode;
 	int rs;
 	uint8_t max_steps;
-
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"	
+//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/10/4] Modify Begin
+	void* sensorSetting;
+	uint16_t iSettingCount;
+//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/10/4] Modify End
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	union {
 		int8_t effect;
 		uint8_t lens_shading;
@@ -1721,6 +1870,14 @@ struct sensor_cfg_data {
 		struct cord aec_cord;
 		int is_autoflash;
 		struct mirror_flip mirror_flip;
+		int wb; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"	//ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+		int ev; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement EV mode in 8M camera with ISP"
+		int scene; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Sence mode in 8M camera with ISP"
+		int aeclock; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AEC Lock mode in 8M camera with ISP"
+		int awblock; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AWB Lock mode in 8M camera with ISP"
+		int iso; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+		int flicker; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Flicker mode in 8M camera with ISP"
+		struct exif_cfg exif;	//ASUS_BSP Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
 		void *setting;
 		int32_t vision_mode_enable;
 		int32_t vision_ae;
