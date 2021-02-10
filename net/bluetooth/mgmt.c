@@ -418,6 +418,7 @@ static u8 get_service_classes(struct hci_dev *hdev)
 static int update_class(struct hci_dev *hdev)
 {
 	u8 cod[3];
+	int err = 0;
 
 	BT_DBG("%s", hdev->name);
 
@@ -431,7 +432,12 @@ static int update_class(struct hci_dev *hdev)
 	if (memcmp(cod, hdev->dev_class, 3) == 0)
 		return 0;
 
-	return hci_send_cmd(hdev, HCI_OP_WRITE_CLASS_OF_DEV, sizeof(cod), cod);
+	err =  hci_send_cmd(hdev, HCI_OP_WRITE_CLASS_OF_DEV, sizeof(cod), cod);
+
+	if (err == 0)
+		memcpy(hdev->dev_class, cod, 3);
+
+	return err;
 }
 
 static int set_limited_discoverable(struct sock *sk, u16 index,
@@ -1000,12 +1006,12 @@ static int set_dev_class(struct sock *sk, u16 index, unsigned char *data,
 	hdev->major_class |= cp->major & MGMT_MAJOR_CLASS_MASK;
 	hdev->minor_class = cp->minor;
 
-	if (test_bit(HCI_UP, &hdev->flags))
+	if (test_bit(HCI_UP, &hdev->flags)) {
 		err = update_class(hdev);
-	else
-		err = 0;
-
-	if (err == 0)
+		if (err == 0)
+			err = cmd_complete(sk, index,
+		MGMT_OP_SET_DEV_CLASS, hdev->dev_class, sizeof(u8)*3);
+	} else
 		err = cmd_complete(sk, index, MGMT_OP_SET_DEV_CLASS, NULL, 0);
 
 	hci_dev_unlock_bh(hdev);
@@ -2131,9 +2137,10 @@ static int start_discovery(struct sock *sk, u16 index)
 
 	err = hci_send_cmd(hdev, HCI_OP_INQUIRY, sizeof(cp), &cp);
 
-	if (err < 0)
+	if (err < 0) {
 		mgmt_pending_remove(cmd);
-	else if (lmp_le_capable(hdev)) {
+		hdev->disco_state = SCAN_IDLE;
+	} else if (lmp_le_capable(hdev)) {
 		cmd = mgmt_pending_find(MGMT_OP_STOP_DISCOVERY, index);
 		if (!cmd)
 			mgmt_pending_add(sk, MGMT_OP_STOP_DISCOVERY, index,
@@ -2145,7 +2152,8 @@ static int start_discovery(struct sock *sk, u16 index)
 		del_timer(&hdev->disco_timer);
 		mod_timer(&hdev->disco_timer,
 				jiffies + msecs_to_jiffies(20000));
-	}
+	} else
+		hdev->disco_state = SCAN_BR;
 
 failed:
 	hci_dev_unlock_bh(hdev);
@@ -2189,9 +2197,7 @@ static int stop_discovery(struct sock *sk, u16 index)
 			err = cmd_complete(sk, index, MGMT_OP_STOP_DISCOVERY,
 								NULL, 0);
 		}
-	}
-
-	if (err < 0)
+	} else if (state == SCAN_BR)
 		err = hci_send_cmd(hdev, HCI_OP_INQUIRY_CANCEL, 0, NULL);
 
 	cmd = mgmt_pending_find(MGMT_OP_STOP_DISCOVERY, index);
@@ -2625,6 +2631,20 @@ int mgmt_connected(u16 index, bdaddr_t *bdaddr, u8 le)
 	ev.le = le;
 
 	return mgmt_event(MGMT_EV_CONNECTED, index, &ev, sizeof(ev), NULL);
+}
+
+int mgmt_le_conn_params(u16 index, bdaddr_t *bdaddr, u16 interval,
+						u16 latency, u16 timeout)
+{
+	struct mgmt_ev_le_conn_params ev;
+
+	bacpy(&ev.bdaddr, bdaddr);
+	ev.interval = interval;
+	ev.latency = latency;
+	ev.timeout = timeout;
+
+	return mgmt_event(MGMT_EV_LE_CONN_PARAMS, index, &ev, sizeof(ev),
+									NULL);
 }
 
 static void disconnect_rsp(struct pending_cmd *cmd, void *data)

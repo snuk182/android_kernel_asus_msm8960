@@ -16,7 +16,7 @@
 #include "msm_camera_i2c_mux.h"
 
 /*=============================================================*/
-int32_t msm_sensor_adjust_frame_lines1(struct msm_sensor_ctrl_t *s_ctrl,
+int32_t msm_sensor_adjust_frame_lines(struct msm_sensor_ctrl_t *s_ctrl,
 	uint16_t res)
 {
 	uint16_t cur_line = 0;
@@ -43,45 +43,6 @@ int32_t msm_sensor_adjust_frame_lines1(struct msm_sensor_ctrl_t *s_ctrl,
 				exp_fl_lines,
 				MSM_CAMERA_I2C_WORD_DATA);
 		CDBG("%s cur_fl_lines %d, exp_fl_lines %d\n", __func__,
-			s_ctrl->msm_sensor_reg->
-			output_settings[res].frame_length_lines,
-			exp_fl_lines);
-	}
-	return 0;
-}
-
-int32_t msm_sensor_adjust_frame_lines2(struct msm_sensor_ctrl_t *s_ctrl,
-	uint16_t res)
-{
-	uint16_t cur_line = 0;
-	uint16_t exp_fl_lines = 0;
-	uint8_t int_time[3];
-	if (s_ctrl->sensor_exp_gain_info) {
-		if (s_ctrl->prev_gain && s_ctrl->prev_line &&
-			s_ctrl->func_tbl->sensor_write_exp_gain)
-			s_ctrl->func_tbl->sensor_write_exp_gain(
-				s_ctrl,
-				s_ctrl->prev_gain,
-				s_ctrl->prev_line);
-
-		msm_camera_i2c_read_seq(s_ctrl->sensor_i2c_client,
-			s_ctrl->sensor_exp_gain_info->coarse_int_time_addr-1,
-			&int_time[0], 3);
-		cur_line |= int_time[0] << 12;
-		cur_line |= int_time[1] << 4;
-		cur_line |= int_time[2] >> 4;
-		exp_fl_lines = cur_line +
-			s_ctrl->sensor_exp_gain_info->vert_offset;
-		if (exp_fl_lines > s_ctrl->msm_sensor_reg->
-			output_settings[res].frame_length_lines)
-			msm_camera_i2c_write(s_ctrl->sensor_i2c_client,
-				s_ctrl->sensor_output_reg_addr->
-				frame_length_lines,
-				exp_fl_lines,
-				MSM_CAMERA_I2C_WORD_DATA);
-		CDBG("%s cur_line %x cur_fl_lines %x, exp_fl_lines %x\n",
-			__func__,
-			cur_line,
 			s_ctrl->msm_sensor_reg->
 			output_settings[res].frame_length_lines,
 			exp_fl_lines);
@@ -387,7 +348,9 @@ int32_t msm_sensor_get_output_info(struct msm_sensor_ctrl_t *s_ctrl,
 }
 
 int32_t msm_sensor_release(struct msm_sensor_ctrl_t *s_ctrl)
-{
+{	
+	printk("%s called\n", __func__);
+#if 0
 	long fps = 0;
 	uint32_t delay = 0;
 	CDBG("%s called\n", __func__);
@@ -401,6 +364,9 @@ int32_t msm_sensor_release(struct msm_sensor_ctrl_t *s_ctrl)
 		CDBG("%s fps = %ld, delay = %d\n", __func__, fps, delay);
 		msleep(delay);
 	}
+#endif
+	msleep(10); 
+	printk("msm_sensor_release end");
 	return 0;
 }
 
@@ -814,7 +780,7 @@ int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 		if (rc < 0) {
 			pr_err("%s: %s power_up failed rc = %d\n", __func__,
 				s_ctrl->sensordata->sensor_name, rc);
-		} else {
+		/*} else {
 			if (s_ctrl->func_tbl->sensor_match_id)
 				rc = s_ctrl->func_tbl->sensor_match_id(s_ctrl);
 			else
@@ -828,7 +794,7 @@ int32_t msm_sensor_power(struct v4l2_subdev *sd, int on)
 					pr_err("%s: %s power_down failed\n",
 					__func__,
 					s_ctrl->sensordata->sensor_name);
-			}
+			}*/
 		}
 	} else {
 		rc = s_ctrl->func_tbl->sensor_power_down(s_ctrl);

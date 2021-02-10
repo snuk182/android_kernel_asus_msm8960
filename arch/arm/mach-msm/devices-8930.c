@@ -30,6 +30,7 @@
 #include "devices.h"
 #include "rpm_log.h"
 #include "rpm_stats.h"
+#include "rpm_rbcpr_stats.h"
 #include "footswitch.h"
 
 #ifdef CONFIG_MSM_MPM
@@ -275,8 +276,8 @@ struct platform_device msm8930_rpm_log_device = {
 };
 
 static struct msm_rpmstats_platform_data msm_rpm_stat_pdata = {
-	.phys_addr_base = 0x0010D204,
-	.phys_size = SZ_8K,
+	.phys_addr_base = 0x0010DD04,
+	.phys_size = SZ_256,
 };
 
 struct platform_device msm8930_rpm_stat_device = {
@@ -285,6 +286,31 @@ struct platform_device msm8930_rpm_stat_device = {
 	.dev = {
 		.platform_data = &msm_rpm_stat_pdata,
 	},
+};
+
+static struct resource msm_rpm_rbcpr_resource = {
+	.start = 0x0010DB00,
+	.end = 0x0010DB00 + SZ_8K - 1,
+	.flags = IORESOURCE_MEM,
+};
+
+static struct msm_rpmrbcpr_platform_data msm_rpm_rbcpr_pdata = {
+	.rbcpr_data = {
+		.upside_steps = 1,
+		.downside_steps = 2,
+		.svs_voltage = 1050000,
+		.nominal_voltage = 1162500,
+		.turbo_voltage = 1287500,
+	},
+};
+
+struct platform_device msm8930_rpm_rbcpr_device = {
+	.name = "msm_rpm_rbcpr",
+	.id = -1,
+	.dev = {
+		.platform_data = &msm_rpm_rbcpr_pdata,
+	},
+	.resource = &msm_rpm_rbcpr_resource,
 };
 
 static int msm8930_LPM_latency = 1000; /* >100 usec for WFI */
@@ -355,6 +381,21 @@ struct platform_device msm_bus_8930_cpss_fpb = {
 	.id    = MSM_BUS_FAB_CPSS_FPB,
 };
 
+struct platform_device msm8627_device_acpuclk = {
+	.name		= "acpuclk-8627",
+	.id		= -1,
+};
+
+struct platform_device msm8930_device_acpuclk = {
+	.name		= "acpuclk-8930",
+	.id		= -1,
+};
+
+struct platform_device msm8930aa_device_acpuclk = {
+	.name		= "acpuclk-8930aa",
+	.id		= -1,
+};
+
 static struct fs_driver_data gfx3d_fs_data = {
 	.clks = (struct fs_clk_data[]){
 		{ .name = "core_clk", .reset_rate = 27000000 },
@@ -384,6 +425,7 @@ static struct fs_driver_data mdp_fs_data = {
 		{ .name = "lut_clk" },
 		{ .name = "tv_src_clk" },
 		{ .name = "tv_clk" },
+		{ .name = "reset1_clk" },
 		{ 0 }
 	},
 	.bus_port0 = MSM_BUS_MASTER_MDP_PORT0,
@@ -435,8 +477,8 @@ struct platform_device *msm8930_footswitch[] __initdata = {
 	FS_8X60(FS_MDP,    "vdd",	"mdp.0",	&mdp_fs_data),
 	FS_8X60(FS_ROT,    "vdd",	"msm_rotator.0", &rot_fs_data),
 	FS_8X60(FS_IJPEG,  "vdd",	"msm_gemini.0", &ijpeg_fs_data),
-	FS_8X60(FS_VFE,    "fs_vfe",	NULL,	&vfe_fs_data),
-	FS_8X60(FS_VPE,    "fs_vpe",	NULL,	&vpe_fs_data),
+	FS_8X60(FS_VFE,    "vdd",	"msm_vfe.0",	&vfe_fs_data),
+	FS_8X60(FS_VPE,    "vdd",	"msm_vpe.0",	&vpe_fs_data),
 	FS_8X60(FS_GFX3D,  "vdd",	"kgsl-3d0.0",	&gfx3d_fs_data),
 	FS_8X60(FS_VED,    "vdd",	"msm_vidc.0",	&ved_fs_data),
 };
@@ -695,6 +737,7 @@ struct msm_vidc_platform_data apq8930_vidc_platform_data = {
 #endif
 	.disable_dmx = 1,
 	.disable_fullhd = 0,
+	.fw_addr = 0x9fe00000,
 };
 
 struct platform_device apq8930_msm_device_vidc = {
@@ -766,12 +809,12 @@ struct msm_iommu_domain_name msm8930_iommu_ctx_names[] = {
 	/* Rotator */
 	{
 		.name = "rot_src",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_SRC_DOMAIN,
 	},
 	/* Rotator */
 	{
 		.name = "rot_dst",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_SRC_DOMAIN,
 	},
 	/* Video */
 	{
@@ -827,18 +870,18 @@ static struct mem_pool msm8930_camera_pools[] =  {
 		},
 };
 
-static struct mem_pool msm8930_display_pools[] =  {
+static struct mem_pool msm8930_display_read_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for display */
+	/* One address space for display reads */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
 		},
 };
 
-static struct mem_pool msm8930_rotator_pools[] =  {
+static struct mem_pool msm8930_rotator_src_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for rotator */
+	/* One address space for rotator src */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -854,13 +897,13 @@ static struct msm_iommu_domain msm8930_iommu_domains[] = {
 			.iova_pools = msm8930_camera_pools,
 			.npools = ARRAY_SIZE(msm8930_camera_pools),
 		},
-		[DISPLAY_DOMAIN] = {
-			.iova_pools = msm8930_display_pools,
-			.npools = ARRAY_SIZE(msm8930_display_pools),
+		[DISPLAY_READ_DOMAIN] = {
+			.iova_pools = msm8930_display_read_pools,
+			.npools = ARRAY_SIZE(msm8930_display_read_pools),
 		},
-		[ROTATOR_DOMAIN] = {
-			.iova_pools = msm8930_rotator_pools,
-			.npools = ARRAY_SIZE(msm8930_rotator_pools),
+		[ROTATOR_SRC_DOMAIN] = {
+			.iova_pools = msm8930_rotator_src_pools,
+			.npools = ARRAY_SIZE(msm8930_rotator_src_pools),
 		},
 };
 

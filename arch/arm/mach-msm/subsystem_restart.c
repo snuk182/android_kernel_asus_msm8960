@@ -35,7 +35,37 @@
 #include <mach/subsystem_restart.h>
 
 #include "smd_private.h"
+//thomas_chu +++
+#include <linux/asus_global.h>
+#include <asm/cacheflush.h>
+extern struct _asus_global asus_global;
 
+#define SUB_MODEM_BIT 0x01;
+#define SUB_RIVA_BIT 0x02;
+
+static const char *subsystem_name[] = {
+	"modem",
+	"riva"
+};
+static int sub_mask = 3;
+module_param(sub_mask, int, S_IRUGO | S_IWUSR);
+
+static bool is_subsystem_restart_enable(const char *sub_sys)
+{
+	bool res = false;
+	int i;
+	for (i = 0; i < sizeof(subsystem_name) / sizeof(subsystem_name[0]); ++i)
+	{
+		if ( sub_mask & (0x01 << i) ) {
+			if (0 == strcmp(subsystem_name[i], sub_sys)) {
+				res = true;
+				break;
+			}
+		}
+	}
+	return res;
+}
+//thomas_chu ---
 struct subsys_soc_restart_order {
 	const char * const *subsystem_list;
 	int count;
@@ -59,8 +89,8 @@ struct restart_log {
 	struct list_head list;
 };
 
-static int restart_level;
-static int enable_ramdumps;
+static int restart_level = RESET_SUBSYS_INDEPENDENT;
+static int enable_ramdumps = 0;
 struct workqueue_struct *ssr_wq;
 
 static LIST_HEAD(restart_log_list);
@@ -92,6 +122,9 @@ DEFINE_SINGLE_RESTART_ORDER(orders_8x60_modems, _order_8x60_modems);
 
 /* MSM 8960 restart ordering info */
 static const char * const order_8960[] = {"modem", "lpass"};
+/*SGLTE restart ordering info*/
+static const char * const order_8960_sglte[] = {"external_modem",
+						"modem"};
 
 static struct subsys_soc_restart_order restart_orders_8960_one = {
 	.subsystem_list = order_8960,
@@ -99,9 +132,83 @@ static struct subsys_soc_restart_order restart_orders_8960_one = {
 	.subsys_ptrs = {[ARRAY_SIZE(order_8960)] = NULL}
 	};
 
+static struct subsys_soc_restart_order restart_orders_8960_fusion_sglte = {
+	.subsystem_list = order_8960_sglte,
+	.count = ARRAY_SIZE(order_8960_sglte),
+	.subsys_ptrs = {[ARRAY_SIZE(order_8960_sglte)] = NULL}
+	};
+
 static struct subsys_soc_restart_order *restart_orders_8960[] = {
 	&restart_orders_8960_one,
-};
+	};
+
+static struct subsys_soc_restart_order *restart_orders_8960_sglte[] = {
+	&restart_orders_8960_fusion_sglte,
+	};
+
+// jack for modem ramdump capture +++++
+#include <linux/wakelock.h>
+static struct subsys_data *subsys = NULL;
+static void subsystem_restart_fn(struct work_struct *work);
+static DECLARE_WORK(subsystem_restart_work, subsystem_restart_fn);
+static int warning_count = 20;
+static struct wake_lock    savelog_wakelock;
+extern void pet_watchdog(void);
+
+static void save_ram_dump(struct subsys_data *sub_sys)
+{
+    pet_watchdog();
+    sub_sys->shutdown(sub_sys);
+    // Always savelog in this case
+    sub_sys->ramdump(1, sub_sys);
+    
+    pet_watchdog();
+    printk_lcd("save_ram_dump done\n");
+}
+
+static void subsystem_save_logs(void)
+{
+    
+    char filename[32];
+    wake_lock_init(&savelog_wakelock, WAKE_LOCK_SUSPEND,
+                    "savelog_wakelock");
+    wake_lock(&savelog_wakelock);
+    
+    if(!strcmp(subsys->name, "modem"))
+        save_ram_dump(subsys);
+    
+    sprintf(filename, "%s_Crash", subsys->name);
+    
+    printk("Saving last shutdown log\r\n"); 
+    save_last_shutdown_log(filename);
+    printk("Saving last shutdown log done\r\n"); 
+    
+    //saving slow down log
+    save_all_thread_info();
+    msleep(5000);
+    delta_all_thread_info();
+    
+    save_phone_hang_log();
+    printk("Saving slow down log done\r\n"); 
+}
+
+static void subsystem_restart_fn(struct work_struct *work)
+{
+ 
+    if(warning_count == 20)
+        subsystem_save_logs();
+    
+    printk_lcd("%s fatal error COUNTING DOWN %d !!", subsys->name, warning_count);
+            
+    
+    if(warning_count--)
+    {
+        schedule_work(&subsystem_restart_work);
+    }
+    msleep(2000); 
+    
+}
+// jack for modem ramdump capture ----
 
 /* These will be assigned to one of the sets above after
  * runtime SoC identification.
@@ -276,6 +383,8 @@ out:
 	mutex_unlock(&restart_log_mutex);
 }
 
+int modem_restarting; // ASUS_BSP jack for system restart calling
+
 static void subsystem_restart_wq_func(struct work_struct *work)
 {
 	struct restart_wq_data *r_work = container_of(work,
@@ -286,6 +395,7 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 
 	struct mutex *powerup_lock;
 	struct mutex *shutdown_lock;
+	struct wake_lock subsystem_restart; // ASUS_BSP+ Wenli "Modify for modem restart"
 
 	int i;
 	int restart_list_count = 0;
@@ -335,6 +445,13 @@ static void subsystem_restart_wq_func(struct work_struct *work)
 	 * and it shouldn't be changed until _this_ restart sequence completes.
 	 */
 	mutex_lock(&soc_order_reg_lock);
+
+
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	wake_lock_init(&subsystem_restart, WAKE_LOCK_SUSPEND, "subsystem_restart");
+	wake_lock_timeout(&subsystem_restart, 60 * HZ);
+// ASUS_BSP--- Wenli "Modify for modem restart"
+
 
 	pr_debug("[%p]: Starting restart sequence for %s\n", current,
 			r_work->subsys->name);
@@ -412,6 +529,12 @@ out:
 	wake_unlock(&r_work->ssr_wake_lock);
 	wake_lock_destroy(&r_work->ssr_wake_lock);
 	kfree(r_work);
+	
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	modem_restarting = 0;
+	wake_unlock(&subsystem_restart);
+	wake_lock_destroy(&subsystem_restart);
+// ASUS_BSP--- Wenli "Modify for modem restart"
 }
 
 static void __subsystem_restart(struct subsys_data *subsys)
@@ -419,9 +542,8 @@ static void __subsystem_restart(struct subsys_data *subsys)
 	struct restart_wq_data *data = NULL;
 	int rc;
 
-	pr_debug("Restarting %s [level=%d]!\n", subsys->name,
+	pr_info("Restarting %s [level=%d]!\n", subsys->name,
 				restart_level);
-
 	data = kzalloc(sizeof(struct restart_wq_data), GFP_ATOMIC);
 	if (!data)
 		panic("%s: Unable to allocate memory to restart %s.",
@@ -445,16 +567,21 @@ static void __subsystem_restart(struct subsys_data *subsys)
 
 int subsystem_restart(const char *subsys_name)
 {
-	struct subsys_data *subsys;
+	//struct subsys_data *subsys;
 
+    pr_info("subsystem_restart modem_restarting=%d\n", modem_restarting);
+    if (!strcmp(subsys_name,"modem"))
+    {
+		asus_global.modem_restart_status = 1;
+		flush_cache_all();	
+		pr_info("asus_global.modem_restart_status = 0x%x\r\n",asus_global.modem_restart_status);
+	}	
+	
 	if (!subsys_name) {
 		pr_err("Invalid subsystem name.\n");
 		return -EINVAL;
 	}
-
-	pr_info("Restart sequence requested for %s, restart_level = %d.\n",
-		subsys_name, restart_level);
-
+		
 	/* List of subsystems is protected by a lock. New subsystems can
 	 * still come in.
 	 */
@@ -464,6 +591,33 @@ int subsystem_restart(const char *subsys_name)
 		pr_warn("Unregistered subsystem %s!\n", subsys_name);
 		return -EINVAL;
 	}
+	
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	if(modem_restarting) {
+		pr_err("modem restart processing\n");
+		return 0;
+	}
+	modem_restarting = 1;
+
+	// We only restart when modem is assert
+	if (restart_level != RESET_SOC && is_subsystem_restart_enable(subsys->name)) {
+// ASUS_BSP--- Wenli "Modify for modem restart"
+	}
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+	else {
+		printk_lcd("Reboot cause by %s\n", subsys_name);
+		schedule_work(&subsystem_restart_work);
+		while(warning_count)
+			msleep(100);
+		printk_lcd("system restarting");
+		panic(subsys_name);
+		return 0;
+	}
+// ASUS_BSP--- Wenli "Modify for modem restart"
+
+	pr_info("Restart requested for %s restart_level %d subsytem mask 0x%X\n",
+		subsys_name, restart_level, sub_mask);
+
 
 	switch (restart_level) {
 
@@ -555,10 +709,20 @@ static int __init ssr_init_soc_restart_orders(void)
 		n_restart_orders = ARRAY_SIZE(orders_8x60_all);
 	}
 
-	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm9615() ||
-			cpu_is_apq8064()) {
-		restart_orders = restart_orders_8960;
-		n_restart_orders = ARRAY_SIZE(restart_orders_8960);
+	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm8930aa() ||
+	    cpu_is_msm9615() || cpu_is_apq8064() || cpu_is_msm8627()) {
+		if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE) {
+			restart_orders = restart_orders_8960_sglte;
+			n_restart_orders =
+				ARRAY_SIZE(restart_orders_8960_sglte);
+		} else {
+			restart_orders = restart_orders_8960;
+			n_restart_orders = ARRAY_SIZE(restart_orders_8960);
+		}
+		for (i = 0; i < n_restart_orders; i++) {
+			mutex_init(&restart_orders[i]->powerup_lock);
+			mutex_init(&restart_orders[i]->shutdown_lock);
+		}
 	}
 
 	if (restart_orders == NULL || n_restart_orders < 1) {
@@ -573,7 +737,7 @@ static int __init subsys_restart_init(void)
 {
 	int ret = 0;
 
-	restart_level = RESET_SOC;
+	//restart_level = RESET_SOC;
 
 	ssr_wq = alloc_workqueue("ssr_wq", 0, 0);
 

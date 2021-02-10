@@ -11,6 +11,7 @@
  *
  */
 
+#include <linux/export.h>
 #include <linux/workqueue.h>
 #include <linux/delay.h>
 #include <linux/types.h>
@@ -132,7 +133,7 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	if (!region)
 		goto out;
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-	region->handle = ion_import_fd(client, info->fd);
+	region->handle = ion_import_dma_buf(client, info->fd);
 	if (IS_ERR_OR_NULL(region->handle))
 		goto out1;
 	if (ion_map_iommu(client, region->handle, CAMERA_DOMAIN, GEN_POOL,
@@ -399,7 +400,7 @@ int msm_register_pmem(struct hlist_head *ptype, void __user *arg,
 
 	return __msm_register_pmem(ptype, &info, client);
 }
-//EXPORT_SYMBOL(msm_register_pmem);
+EXPORT_SYMBOL(msm_register_pmem);
 
 int msm_pmem_table_del(struct hlist_head *ptype, void __user *arg,
 					   struct ion_client *client)
@@ -413,4 +414,4 @@ int msm_pmem_table_del(struct hlist_head *ptype, void __user *arg,
 
 	return __msm_pmem_table_del(ptype, &info, client);
 }
-//EXPORT_SYMBOL(msm_pmem_table_del);
+EXPORT_SYMBOL(msm_pmem_table_del);

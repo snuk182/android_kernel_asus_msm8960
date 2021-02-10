@@ -30,9 +30,14 @@ VREG_CONSUMERS(L1) = {
 VREG_CONSUMERS(L2) = {
 	REGULATOR_SUPPLY("8921_l2",		NULL),
 	REGULATOR_SUPPLY("dsi_vdda",		"mipi_dsi.1"),
+	REGULATOR_SUPPLY("dsi_pll_vdda",	"mdp.0"),
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.0"),
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.1"),
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.2"),
+        REGULATOR_SUPPLY("mipi_csi_vdd",	"4-001f"),  //ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify Begin
+		REGULATOR_SUPPLY("mipi_csi_vdd",	"4-007a"),
+//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify End
 };
 VREG_CONSUMERS(L3) = {
 	REGULATOR_SUPPLY("8921_l3",		NULL),
@@ -57,7 +62,7 @@ VREG_CONSUMERS(L7) = {
 };
 VREG_CONSUMERS(L8) = {
 	REGULATOR_SUPPLY("8921_l8",		NULL),
-	REGULATOR_SUPPLY("dsi_vdc",		"mipi_dsi.1"),
+	//REGULATOR_SUPPLY("dsi_vdc",		"mipi_dsi.1"),  // +++ ASUS_BSP : miniporting : Mickey
 };
 VREG_CONSUMERS(L9) = {
 	REGULATOR_SUPPLY("8921_l9",		NULL),
@@ -71,11 +76,12 @@ VREG_CONSUMERS(L10) = {
 };
 VREG_CONSUMERS(L11) = {
 	REGULATOR_SUPPLY("8921_l11",		NULL),
-	REGULATOR_SUPPLY("cam_vana",		"4-001a"),
-	REGULATOR_SUPPLY("cam_vana",		"4-006c"),
-	REGULATOR_SUPPLY("cam_vana",		"4-0048"),
-	REGULATOR_SUPPLY("cam_vana",		"4-0020"),
-	REGULATOR_SUPPLY("cam_vana",		"4-0034"),
+    //+++ ASUS_BSP : miniporting : Mickey+++
+	//REGULATOR_SUPPLY("cam_vana",		"4-001a"),
+	//REGULATOR_SUPPLY("cam_vana",		"4-006c"),
+	//REGULATOR_SUPPLY("cam_vana",		"4-0048"),
+     REGULATOR_SUPPLY("dsi_vdc",     "mipi_dsi.1"),
+    //+++ ASUS_BSP : miniporting : Mickey---
 };
 VREG_CONSUMERS(L12) = {
 	REGULATOR_SUPPLY("8921_l12",		NULL),
@@ -84,6 +90,10 @@ VREG_CONSUMERS(L12) = {
 	REGULATOR_SUPPLY("cam_vdig",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vdig",		"4-0034"),
+        REGULATOR_SUPPLY("cam_vdig",		"4-001f"),  //ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+		//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify Begin
+				REGULATOR_SUPPLY("cam_vdig",	"4-007a"),
+		//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify End
 };
 VREG_CONSUMERS(L14) = {
 	REGULATOR_SUPPLY("8921_l14",		NULL),
@@ -99,6 +109,10 @@ VREG_CONSUMERS(L16) = {
 	REGULATOR_SUPPLY("cam_vaf",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vaf",		"4-0034"),
+        REGULATOR_SUPPLY("cam_vaf",		"4-001f"),  //ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+		//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify Begin
+				REGULATOR_SUPPLY("cam_vaf",	"4-007a"),
+		//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify End
 };
 VREG_CONSUMERS(L17) = {
 	REGULATOR_SUPPLY("8921_l17",		NULL),
@@ -115,8 +129,8 @@ VREG_CONSUMERS(L22) = {
 VREG_CONSUMERS(L23) = {
 	REGULATOR_SUPPLY("8921_l23",		NULL),
 	REGULATOR_SUPPLY("dsi_vddio",		"mipi_dsi.1"),
+	REGULATOR_SUPPLY("dsi_pll_vddio",	"mdp.0"),
 	REGULATOR_SUPPLY("hdmi_avdd",		"hdmi_msm.0"),
-	REGULATOR_SUPPLY("hdmi_pll_fs",		"mdp.0"),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_riva"),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_qdsp6v4.1"),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_qdsp6v4.2"),
@@ -182,11 +196,11 @@ VREG_CONSUMERS(S4) = {
 };
 VREG_CONSUMERS(S5) = {
 	REGULATOR_SUPPLY("8921_s5",		NULL),
-	REGULATOR_SUPPLY("krait0",		NULL),
+	REGULATOR_SUPPLY("krait0",		"acpuclk-8960"),
 };
 VREG_CONSUMERS(S6) = {
 	REGULATOR_SUPPLY("8921_s6",		NULL),
-	REGULATOR_SUPPLY("krait1",		NULL),
+	REGULATOR_SUPPLY("krait1",		"acpuclk-8960"),
 };
 VREG_CONSUMERS(S7) = {
 	REGULATOR_SUPPLY("8921_s7",		NULL),
@@ -217,6 +231,10 @@ VREG_CONSUMERS(LVS5) = {
 	REGULATOR_SUPPLY("cam_vio",		"4-0048"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0020"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0034"),
+        REGULATOR_SUPPLY("cam_vio",		"4-001f"),  //ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+		//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify Begin
+				REGULATOR_SUPPLY("cam_vio",	"4-007a"),
+		//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/12/27] Modify End
 };
 VREG_CONSUMERS(LVS6) = {
 	REGULATOR_SUPPLY("8921_lvs6",		NULL),
@@ -225,6 +243,8 @@ VREG_CONSUMERS(LVS6) = {
 VREG_CONSUMERS(LVS7) = {
 	REGULATOR_SUPPLY("8921_lvs7",		NULL),
 };
+//ASUS BSP +++
+/*
 VREG_CONSUMERS(USB_OTG) = {
 	REGULATOR_SUPPLY("8921_usb_otg",	NULL),
 };
@@ -232,6 +252,8 @@ VREG_CONSUMERS(HDMI_MVS) = {
 	REGULATOR_SUPPLY("8921_hdmi_mvs",	NULL),
 	REGULATOR_SUPPLY("hdmi_mvs",		"hdmi_msm.0"),
 };
+*/
+// ASUS BSP ---
 VREG_CONSUMERS(NCP) = {
 	REGULATOR_SUPPLY("8921_ncp",		NULL),
 };
@@ -246,7 +268,7 @@ VREG_CONSUMERS(EXT_3P3V) = {
 	REGULATOR_SUPPLY("ext_3p3v",		NULL),
 	REGULATOR_SUPPLY("vdd_ana",		"3-005b"),
 	REGULATOR_SUPPLY("vdd_lvds_3p3v",	"mipi_dsi.1"),
-	REGULATOR_SUPPLY("mhl_ext_3p3v",	"msm_otg"),
+	REGULATOR_SUPPLY("mhl_usb_hs_switch",	"msm_otg"),
 };
 VREG_CONSUMERS(EXT_OTG_SW) = {
 	REGULATOR_SUPPLY("ext_otg_sw",		NULL),
@@ -508,8 +530,12 @@ msm_pm8921_regulator_pdata[] __devinitdata = {
 		0, 4),
 
 	/*	     ID        name      always_on pd en_t supply    reg_ID */
+// ASUS BSP +++
+/*
 	PM8XXX_VS300(USB_OTG,  "8921_usb_otg",  0, 1, 0,   "ext_5v", 5),
 	PM8XXX_VS300(HDMI_MVS, "8921_hdmi_mvs", 0, 1, 0,   "ext_5v", 6),
+*/
+// ASUS BSP ---
 };
 
 static struct rpm_regulator_init_data
@@ -531,14 +557,17 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_LDO(L6,	 0, 1, 0, 2950000, 2950000, NULL,      0, 0),
 	RPM_LDO(L7,	 1, 1, 0, 1850000, 2950000, NULL,      10000, 10000),
 	RPM_LDO(L8,	 0, 1, 0, 2800000, 3000000, NULL,      0, 0),
-	RPM_LDO(L9,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
+	RPM_LDO(L9,	 0, 1, 0, 2850000, 2850000, NULL,      0, 0),
 	RPM_LDO(L10,	 0, 1, 0, 3000000, 3000000, NULL,      0, 0),
-	RPM_LDO(L11,	 0, 1, 0, 2850000, 2850000, NULL,      0, 0),
+    //+++ ASUS_BSP : miniporting : Mickey+++
+	//RPM_LDO(L11,	 0, 1, 0, 2850000, 2850000, NULL,      0, 0),
+    RPM_LDO(L11,     0, 1, 0, 3100000, 3100000, NULL,      0, 0),
+    //+++ ASUS_BSP : miniporting : Mickey---
 	RPM_LDO(L12,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
 	RPM_LDO(L14,	 0, 1, 0, 1800000, 1800000, NULL,      0, 0),
 	RPM_LDO(L15,	 0, 1, 0, 1800000, 2950000, NULL,      0, 0),
 	RPM_LDO(L16,	 0, 1, 0, 2800000, 2800000, NULL,      0, 0),
-	RPM_LDO(L17,	 0, 1, 0, 1800000, 2950000, NULL,      0, 0),
+	RPM_LDO(L17,	 0, 1, 0, 3300000, 3300000, NULL,      0, 0),// +++ ASUS_BSP : miniporting : add for touch
 	RPM_LDO(L18,	 0, 1, 0, 1300000, 1300000, "8921_s4", 0, 0),
 	RPM_LDO(L21,	 0, 1, 0, 1900000, 1900000, "8921_s8", 0, 0),
 	RPM_LDO(L22,	 0, 1, 0, 2750000, 2750000, NULL,      0, 0),
@@ -550,7 +579,7 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_VS(LVS1,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS2,	 0, 1, 0,		    "8921_s1"),
 	RPM_VS(LVS3,	 0, 1, 0,		    "8921_s4"),
-	RPM_VS(LVS4,	 0, 1, 0,		    "8921_s4"),
+	RPM_VS(LVS4,	 1, 1, 0,		    "8921_s4"),// +++ ASUS_BSP : miniporting : add for touch
 	RPM_VS(LVS5,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS6,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS7,	 0, 1, 0,		    "8921_s4"),
@@ -562,10 +591,34 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 int msm_pm8921_regulator_pdata_len __devinitdata =
 	ARRAY_SIZE(msm_pm8921_regulator_pdata);
 
+#define RPM_REG_MAP(_id, _sleep_also, _voter, _supply, _dev_name) \
+	{ \
+		.vreg_id = RPM_VREG_ID_PM8921_##_id, \
+		.sleep_also = _sleep_also, \
+		.voter = _voter, \
+		.supply = _supply, \
+		.dev_name = _dev_name, \
+	}
+static struct rpm_regulator_consumer_mapping
+	      msm_rpm_regulator_consumer_mapping[] __devinitdata = {
+	RPM_REG_MAP(L23, 0, 1, "krait0_l23", "acpuclk-8960"),
+	RPM_REG_MAP(L23, 0, 2, "krait1_l23", "acpuclk-8960"),
+	RPM_REG_MAP(L23, 0, 6, "l2_l23",     "acpuclk-8960"),
+	RPM_REG_MAP(L24, 0, 1, "krait0_mem", "acpuclk-8960"),
+	RPM_REG_MAP(L24, 0, 2, "krait1_mem", "acpuclk-8960"),
+	RPM_REG_MAP(S3,  0, 1, "krait0_dig", "acpuclk-8960"),
+	RPM_REG_MAP(S3,  0, 2, "krait1_dig", "acpuclk-8960"),
+	RPM_REG_MAP(S8,  0, 1, "krait0_s8",  "acpuclk-8960"),
+	RPM_REG_MAP(S8,  0, 2, "krait1_s8",  "acpuclk-8960"),
+	RPM_REG_MAP(S8,  0, 6, "l2_s8",      "acpuclk-8960"),
+};
+
 struct rpm_regulator_platform_data msm_rpm_regulator_pdata __devinitdata = {
 	.init_data		= msm_rpm_regulator_init_data,
 	.num_regulators		= ARRAY_SIZE(msm_rpm_regulator_init_data),
 	.version		= RPM_VREG_VERSION_8960,
 	.vreg_id_vdd_mem	= RPM_VREG_ID_PM8921_L24,
 	.vreg_id_vdd_dig	= RPM_VREG_ID_PM8921_S3,
+	.consumer_map		= msm_rpm_regulator_consumer_mapping,
+	.consumer_map_len = ARRAY_SIZE(msm_rpm_regulator_consumer_mapping),
 };

@@ -95,14 +95,6 @@
 #define PCIE20_PHYS   0x1b500000
 #define PCIE20_SIZE   SZ_4K
 
-/* AXI address for PCIE device BAR resources */
-#define PCIE_AXI_BAR_PHYS   0x08000000
-#define PCIE_AXI_BAR_SIZE   SZ_8M
-
-/* AXI address for PCIE device config space */
-#define PCIE_AXI_CONF_PHYS   0x08c00000
-#define PCIE_AXI_CONF_SIZE   SZ_4K
-
 static struct msm_watchdog_pdata msm_watchdog_pdata = {
 	.pet_time = 10000,
 	.bark_time = 11000,
@@ -860,6 +852,11 @@ struct platform_device apq8064_device_ehci_host4 = {
 	},
 };
 
+struct platform_device apq8064_device_acpuclk = {
+	.name		= "acpuclk-8064",
+	.id		= -1,
+};
+
 #define SHARED_IMEM_TZ_BASE 0x2a03f720
 static struct resource tzlog_resources[] = {
 	{
@@ -1192,6 +1189,7 @@ struct msm_vidc_platform_data apq8064_vidc_platform_data = {
 	.disable_dmx = 0,
 	.disable_fullhd = 0,
 	.cont_mode_dpb_count = 18,
+	.fw_addr = 0x9fe00000,
 };
 
 struct platform_device apq8064_msm_device_vidc = {
@@ -1638,13 +1636,13 @@ struct platform_device msm_device_smd_apq8064 = {
 
 static struct resource resources_msm_pcie[] = {
 	{
-		.name   = "parf",
+		.name   = "pcie_parf",
 		.start  = PCIE20_PARF_PHYS,
 		.end    = PCIE20_PARF_PHYS + PCIE20_PARF_SIZE - 1,
 		.flags  = IORESOURCE_MEM,
 	},
 	{
-		.name   = "elbi",
+		.name   = "pcie_elbi",
 		.start  = PCIE20_ELBI_PHYS,
 		.end    = PCIE20_ELBI_PHYS + PCIE20_ELBI_SIZE - 1,
 		.flags  = IORESOURCE_MEM,
@@ -1653,18 +1651,6 @@ static struct resource resources_msm_pcie[] = {
 		.name   = "pcie20",
 		.start  = PCIE20_PHYS,
 		.end    = PCIE20_PHYS + PCIE20_SIZE - 1,
-		.flags  = IORESOURCE_MEM,
-	},
-	{
-		.name   = "axi_bar",
-		.start  = PCIE_AXI_BAR_PHYS,
-		.end    = PCIE_AXI_BAR_PHYS + PCIE_AXI_BAR_SIZE - 1,
-		.flags  = IORESOURCE_MEM,
-	},
-	{
-		.name   = "axi_conf",
-		.start  = PCIE_AXI_CONF_PHYS,
-		.end    = PCIE_AXI_CONF_PHYS + PCIE_AXI_CONF_SIZE - 1,
 		.flags  = IORESOURCE_MEM,
 	},
 };
@@ -1743,6 +1729,8 @@ static struct fs_driver_data mdp_fs_data = {
 		{ .name = "lut_clk" },
 		{ .name = "tv_src_clk" },
 		{ .name = "tv_clk" },
+		{ .name = "reset1_clk" },
+		{ .name = "reset2_clk" },
 		{ 0 }
 	},
 	.bus_port0 = MSM_BUS_MASTER_MDP_PORT0,
@@ -1804,8 +1792,8 @@ struct platform_device *apq8064_footswitch[] __initdata = {
 	FS_8X60(FS_MDP,    "vdd",       "mdp.0",        &mdp_fs_data),
 	FS_8X60(FS_ROT,    "vdd",	"msm_rotator.0", &rot_fs_data),
 	FS_8X60(FS_IJPEG,  "vdd",	"msm_gemini.0",	&ijpeg_fs_data),
-	FS_8X60(FS_VFE,    "fs_vfe",	NULL,	&vfe_fs_data),
-	FS_8X60(FS_VPE,    "fs_vpe",	NULL,	&vpe_fs_data),
+	FS_8X60(FS_VFE,    "vdd",	"msm_vfe.0",	&vfe_fs_data),
+	FS_8X60(FS_VPE,    "vdd",	"msm_vpe.0",	&vpe_fs_data),
 	FS_8X60(FS_GFX3D,  "vdd",	"kgsl-3d0.0",	&gfx3d_fs_data),
 	FS_8X60(FS_VED,    "vdd",	"msm_vidc.0",	&ved_fs_data),
 	FS_8X60(FS_VCAP,   "vdd",	"msm_vcap.0",	&vcap_fs_data),
@@ -2074,8 +2062,8 @@ struct platform_device apq8064_rpm_device = {
 };
 
 static struct msm_rpmstats_platform_data msm_rpm_stat_pdata = {
-	.phys_addr_base = 0x0010D204,
-	.phys_size = SZ_8K,
+	.phys_addr_base = 0x0010DD04,
+	.phys_size = SZ_256,
 };
 
 struct platform_device apq8064_rpm_stat_device = {
@@ -2595,15 +2583,15 @@ struct msm_iommu_domain_name apq8064_iommu_ctx_names[] = {
 		.name = "jpegd_dst",
 		.domain = CAMERA_DOMAIN,
 	},
-	/* Rotator */
+	/* Rotator src*/
 	{
 		.name = "rot_src",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_SRC_DOMAIN,
 	},
-	/* Rotator */
+	/* Rotator dst */
 	{
 		.name = "rot_dst",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_DST_DOMAIN,
 	},
 	/* Video */
 	{
@@ -2659,18 +2647,36 @@ static struct mem_pool apq8064_camera_pools[] =  {
 		},
 };
 
-static struct mem_pool apq8064_display_pools[] =  {
+static struct mem_pool apq8064_display_read_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for display */
+	/* One address space for display reads */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
 		},
 };
 
-static struct mem_pool apq8064_rotator_pools[] =  {
+static struct mem_pool apq8064_display_write_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for rotator */
+	/* One address space for display writes */
+		{
+			.paddr	= SZ_128K,
+			.size	= SZ_2G - SZ_128K,
+		},
+};
+
+static struct mem_pool apq8064_rotator_src_pools[] =  {
+	[GEN_POOL] =
+	/* One address space for rotator src */
+		{
+			.paddr	= SZ_128K,
+			.size	= SZ_2G - SZ_128K,
+		},
+};
+
+static struct mem_pool apq8064_rotator_dst_pools[] =  {
+	[GEN_POOL] =
+	/* One address space for rotator dst */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -2686,13 +2692,21 @@ static struct msm_iommu_domain apq8064_iommu_domains[] = {
 			.iova_pools = apq8064_camera_pools,
 			.npools = ARRAY_SIZE(apq8064_camera_pools),
 		},
-		[DISPLAY_DOMAIN] = {
-			.iova_pools = apq8064_display_pools,
-			.npools = ARRAY_SIZE(apq8064_display_pools),
+		[DISPLAY_READ_DOMAIN] = {
+			.iova_pools = apq8064_display_read_pools,
+			.npools = ARRAY_SIZE(apq8064_display_read_pools),
 		},
-		[ROTATOR_DOMAIN] = {
-			.iova_pools = apq8064_rotator_pools,
-			.npools = ARRAY_SIZE(apq8064_rotator_pools),
+		[DISPLAY_WRITE_DOMAIN] = {
+			.iova_pools = apq8064_display_write_pools,
+			.npools = ARRAY_SIZE(apq8064_display_write_pools),
+		},
+		[ROTATOR_SRC_DOMAIN] = {
+			.iova_pools = apq8064_rotator_src_pools,
+			.npools = ARRAY_SIZE(apq8064_rotator_src_pools),
+		},
+		[ROTATOR_DST_DOMAIN] = {
+			.iova_pools = apq8064_rotator_dst_pools,
+			.npools = ARRAY_SIZE(apq8064_rotator_dst_pools),
 		},
 };
 

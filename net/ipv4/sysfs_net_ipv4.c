@@ -45,6 +45,85 @@ static ssize_t _name##_store(struct kobject *kobj, \
 static struct kobj_attribute _name##_attr = \
 	__ATTR(_name, 0644, _name##_show, _name##_store)
 
+//ASUS_BSP+++ SYN FIREWALL
+struct port_link
+{
+	int port;
+	int read;
+	int deleting;
+	struct port_link* next;
+}; 
+DECLARE_COMPLETION(listen_event);
+extern struct port_link syn_firewall_port_link_head;
+extern spinlock_t listen_port_lock;
+static ssize_t listen_port_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) 
+{ 
+	unsigned long r=0;
+	int port_num=0;
+	struct port_link *p=&syn_firewall_port_link_head;
+	printk("[SYN] listen_port_show\n");
+
+	r=wait_for_completion_interruptible(&listen_event);
+	if(0==r){
+		printk("[SYN]listen port event complete 0\n");
+    }
+	else{
+		printk("[SYN] should be suspending\n");
+	    return sprintf(buf, "3"); 
+	}
+	spin_lock_bh(&listen_port_lock);
+	
+	while(p->next!=NULL)
+	{
+		struct port_link *prev;
+		prev=p;
+		p=p->next;
+		if(0==p->read){
+			p->read=1;
+			if(p->next!=NULL)
+				complete(&listen_event);
+			spin_unlock_bh(&listen_port_lock);
+			
+			printk("[SYN] add port %d\n", p->port);
+
+			return sprintf(buf, "9 %d",p->port);
+		}
+	}
+	p=&syn_firewall_port_link_head;
+	while(p->next!=NULL)
+	{
+		struct port_link *prev,*next;
+		prev=p;
+		p=p->next;
+		next=p->next;
+		if(1==p->deleting){
+			p->read=1;
+			if(p->next!=NULL)
+				complete(&listen_event);
+			prev->next=next;
+			port_num=p->port;
+			spin_unlock_bh(&listen_port_lock);
+			kfree(p);
+			printk("[SYN] delete port %d %p %p %p\n",port_num,prev,p,next);
+			return sprintf(buf, "10 %d",port_num);
+		}
+	}
+	spin_unlock_bh(&listen_port_lock);
+			
+
+	return sprintf(buf, "3"); 
+}
+
+static ssize_t listen_port_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) 
+{ 
+	printk("[SYN] listen_port_store\n");
+	return count; 
+} 
+
+
+static struct kobj_attribute listen_port_attr = 
+	__ATTR(listen_port, 0664, listen_port_show, listen_port_store);
+//ASUS_BSP---
 CREATE_IPV4_FILE(tcp_wmem_min, sysctl_tcp_wmem[0]);
 CREATE_IPV4_FILE(tcp_wmem_def, sysctl_tcp_wmem[1]);
 CREATE_IPV4_FILE(tcp_wmem_max, sysctl_tcp_wmem[2]);
@@ -60,6 +139,7 @@ static struct attribute *ipv4_attrs[] = {
 	&tcp_rmem_min_attr.attr,
 	&tcp_rmem_def_attr.attr,
 	&tcp_rmem_max_attr.attr,
+	&listen_port_attr.attr, //ASUS_BSP+ SYN FIREWALL
 	NULL
 };
 

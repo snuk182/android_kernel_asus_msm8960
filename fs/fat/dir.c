@@ -66,6 +66,13 @@ static inline void fat_dir_readahead(struct inode *dir, sector_t iblock,
 	brelse(bh);
 }
 
+
+//ASUS_BSP +++ Josh_Liao "pet watchdog when reading block always failed"
+#define RETRY_TIMES_TO_PET_DOG   (25)
+extern void pet_watchdog(void);
+int retry_cnt = 0;
+//ASUS_BSP --- Josh_Liao "pet watchdog when reading block always failed"
+
 /* Returns the inode number of the directory entry at offset pos. If bh is
    non-NULL, it is brelse'd before. Pos is incremented. The buffer header is
    returned in bh.
@@ -102,6 +109,14 @@ next:
 		       (llu)phys);
 		/* skip this block */
 		*pos = (iblock + 1) << sb->s_blocksize_bits;
+//ASUS_BSP +++ Josh_Liao "pet watchdog when reading block always failed"
+		retry_cnt++;
+		if (retry_cnt >= RETRY_TIMES_TO_PET_DOG) {
+			retry_cnt = 0;
+			pet_watchdog();
+			printk("[SD]pet watchdog when retry failed over %d\n", RETRY_TIMES_TO_PET_DOG);
+		}
+//ASUS_BSP --- Josh_Liao "pet watchdog when reading block always failed"		
 		goto next;
 	}
 
@@ -415,14 +430,15 @@ parse_record:
 			}
 			i += chl;
 		}
-		if (!last_u)
-			continue;
 
-		/* Compare shortname */
-		bufuname[last_u] = 0x0000;
-		len = fat_uni_to_x8(sb, bufuname, bufname, sizeof(bufname));
-		if (fat_name_match(sbi, name, name_len, bufname, len))
-			goto found;
+		if (last_u) {
+			/* Compare shortname */
+			bufuname[last_u] = 0x0000;
+			len = fat_uni_to_x8(sb, bufuname, bufname, sizeof(bufname));
+			if (fat_name_match(sbi, name, name_len, bufname, len))
+				goto found;
+		}
+
 
 		if (nr_slots) {
 			void *longname = unicode + FAT_MAX_UNI_CHARS;

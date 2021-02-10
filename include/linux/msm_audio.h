@@ -67,6 +67,27 @@
 
 #define AUDIO_SET_SRS_TRUMEDIA_PARAM _IOW(AUDIO_IOCTL_MAGIC, 43, unsigned)
 
+//ASUS Tim++
+#define AUDIO_SET_HAC_mode          _IOW(AUDIO_IOCTL_MAGIC, 66, unsigned)
+#define AUDIO_GET_HAC_mode          _IOR(AUDIO_IOCTL_MAGIC, 67, unsigned)
+#define AUDIO_SET_change_device       _IOW(AUDIO_IOCTL_MAGIC, 68, unsigned)
+#define AUDIO_GET_change_device       _IOR(AUDIO_IOCTL_MAGIC, 69, unsigned)
+#define AUDIO_SET_Alarm_STATE       _IOW(AUDIO_IOCTL_MAGIC, 70, unsigned)
+#define AUDIO_GET_Alarm_STATE       _IOR(AUDIO_IOCTL_MAGIC, 71, unsigned)
+
+#define AUDIO_SET_Garmin_STATE       _IOW(AUDIO_IOCTL_MAGIC, 72, unsigned)
+#define AUDIO_GET_Garmin_STATE       _IOR(AUDIO_IOCTL_MAGIC, 73, unsigned)
+//ASUS Tim--
+//Bruno++
+#define AUDIO_SET_SKYPE_STATE       _IOW(AUDIO_IOCTL_MAGIC, 74, unsigned)
+#define AUDIO_GET_SKYPE_STATE       _IOR(AUDIO_IOCTL_MAGIC, 75, unsigned)    
+#define AUDIO_SET_RINGTONE_STATE    _IOW(AUDIO_IOCTL_MAGIC, 76, unsigned)
+#define AUDIO_GET_RINGTONE_STATE    _IOR(AUDIO_IOCTL_MAGIC, 77, unsigned)
+#define AUDIO_SET_VR_STATE          _IOR(AUDIO_IOCTL_MAGIC, 78, unsigned)
+#define AUDIO_GET_VR_STATE          _IOR(AUDIO_IOCTL_MAGIC, 79, unsigned)
+//Bruno++
+
+//ASUS Tim--
 /* Qualcomm extensions */
 #define AUDIO_SET_STREAM_CONFIG   _IOW(AUDIO_IOCTL_MAGIC, 80, \
 				struct msm_audio_stream_config)
@@ -93,6 +114,10 @@
 					struct msm_acdb_cmd_device)
 #define AUDIO_GET_ACDB_BLK _IOW(AUDIO_IOCTL_MAGIC, 96,  \
 					struct msm_acdb_cmd_device)
+
+
+#define AUDIO_SET_INCALL_STATE      _IOW(AUDIO_IOCTL_MAGIC, 99, unsigned)
+//Bruno++
 
 #define AUDIO_REGISTER_ION _IOW(AUDIO_IOCTL_MAGIC, 97, unsigned)
 #define AUDIO_DEREGISTER_ION _IOW(AUDIO_IOCTL_MAGIC, 98, unsigned)
@@ -222,6 +247,28 @@ struct msm_snd_device_config {
 
 #define SND_SET_DEVICE _IOW(SND_IOCTL_MAGIC, 2, struct msm_device_config *)
 
+enum cad_device_path_type {
+	CAD_DEVICE_PATH_RX,	/*For Decoding session*/
+	CAD_DEVICE_PATH_TX,	/* For Encoding session*/
+	CAD_DEVICE_PATH_RX_TX, /* For Voice call */
+	CAD_DEVICE_PATH_LB,	/* For loopback (FM Analog)*/
+	CAD_DEVICE_PATH_MAX
+};
+
+struct cad_devices_type {
+	uint32_t rx_device;
+	uint32_t tx_device;
+	enum cad_device_path_type pathtype;
+};
+
+struct msm_cad_device_config {
+	struct cad_devices_type device;
+	uint32_t ear_mute;
+	uint32_t mic_mute;
+};
+
+#define CAD_SET_DEVICE _IOW(SND_IOCTL_MAGIC, 2, struct msm_cad_device_config *)
+
 #define SND_METHOD_VOICE 0
 
 struct msm_snd_volume_config {
@@ -231,6 +278,14 @@ struct msm_snd_volume_config {
 };
 
 #define SND_SET_VOLUME _IOW(SND_IOCTL_MAGIC, 3, struct msm_snd_volume_config *)
+
+struct msm_cad_volume_config {
+	struct cad_devices_type device;
+	uint32_t method;
+	uint32_t volume;
+};
+
+#define CAD_SET_VOLUME _IOW(SND_IOCTL_MAGIC, 3, struct msm_cad_volume_config *)
 
 /* Returns the number of SND endpoints supported. */
 
@@ -253,6 +308,24 @@ struct msm_snd_endpoint {
 
 #define SND_AVC_CTL _IOW(SND_IOCTL_MAGIC, 6, unsigned *)
 #define SND_AGC_CTL _IOW(SND_IOCTL_MAGIC, 7, unsigned *)
+
+/*return the number of CAD endpoints supported. */
+
+#define CAD_GET_NUM_ENDPOINTS _IOR(SND_IOCTL_MAGIC, 4, unsigned *)
+
+struct msm_cad_endpoint {
+	int id; /* input and output */
+	char name[64]; /* output only */
+};
+
+/* Takes an index between 0 and one less than the number returned by
+ * SND_GET_NUM_ENDPOINTS, and returns the CAD index and name of a
+ * CAD endpoint.  On input, the .id field contains the number of the
+ * endpoint, and on exit it contains the SND index, while .name contains
+ * the description of the endpoint.
+ */
+
+#define CAD_GET_ENDPOINT _IOWR(SND_IOCTL_MAGIC, 5, struct msm_cad_endpoint *)
 
 struct msm_audio_pcm_config {
 	uint32_t pcm_feedback;	/* 0 - disable > 0 - enable */

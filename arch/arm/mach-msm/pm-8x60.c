@@ -28,6 +28,9 @@
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
 #include <mach/system.h>
+#include <mach/scm.h>
+#include <mach/socinfo.h>
+#include <mach/msm-krait-l2-accessors.h>
 #include <asm/cacheflush.h>
 #include <asm/hardware/gic.h>
 #include <asm/pgtable.h>
@@ -47,7 +50,21 @@
 #include "spm.h"
 #include "timer.h"
 #include "pm-boot.h"
+//[+++][CY]Turn off HDMI_5V in Apps power collapse
+#include <linux/gpio.h>
+#include <mach/gpiomux.h>
+#include <linux/a60k_gpio_pinname.h>
+//[---][CY]Turn off HDMI_5V in Apps power collapse
 
+//++Ledger
+#include "linux/console.h"    //Ledger
+#define GPIO_CONFIG(n)    (MSM_TLMM_BASE + 0x1000 + (0x10 * n))
+#define GPIO_IN_OUT(n) (MSM_TLMM_BASE + 0x1004 + (0x10 * n))
+#define GPIO_INTR_CFG(n) (MSM_TLMM_BASE + 0x1008 + (0x10 * n))
+#define GPIO_INTR_STS(n) (MSM_TLMM_BASE + 0x100C + (0x10 * n))
+
+unsigned int pwrcs_time;
+//--Ledger
 /******************************************************************************
  * Debug Definitions
  *****************************************************************************/
@@ -247,6 +264,7 @@ static int __init msm_pm_mode_sysfs_add_cpu(
 			if ((k == MSM_PM_MODE_ATTR_SUSPEND) &&
 			     !msm_pm_sleep_modes[idx].suspend_supported)
 				continue;
+			sysfs_attr_init(&mode->kas[j].ka.attr);
 			mode->kas[j].cpu = cpu;
 			mode->kas[j].ka.attr.mode = 0644;
 			mode->kas[j].ka.show = msm_pm_mode_attr_show;
@@ -324,7 +342,22 @@ mode_sysfs_add_exit:
  */
 static void msm_pm_config_hw_before_power_down(void)
 {
-	return;
+	if (isASUS_MSK_set(DBGMSK_GIO_G7))
+	{
+        	static int gpio_n;
+        	for(gpio_n=0;gpio_n<NR_GPIO_IRQS;gpio_n++)
+        	{
+			if (isASUS_MSK_set(DBGMSK_GIO_G6))
+			{
+                		if ( __raw_readl(GPIO_INTR_CFG(gpio_n))&0x9 )
+                		{
+                        		printk("+GPIO%d INT_CFG:%x, INT_STS:%x \n"  ,gpio_n,__raw_readl(GPIO_INTR_CFG(gpio_n)),__raw_readl(GPIO_INTR_STS(gpio_n)));//Ledger
+				}
+			}
+			if (isASUS_MSK_set(DBGMSK_GIO_G5))
+                        	printk("GPIO%d CFG:%x, IO:%x \n" ,gpio_n,__raw_readl(GPIO_CONFIG(gpio_n)),__raw_readl(GPIO_IN_OUT(gpio_n))); //Ledger
+		}
+	}
 }
 
 /*
@@ -332,7 +365,15 @@ static void msm_pm_config_hw_before_power_down(void)
  */
 static void msm_pm_config_hw_after_power_up(void)
 {
-	return;
+	if (isASUS_MSK_set(DBGMSK_GIO_G7))
+	{
+        	static int gpio_n;
+        	for(gpio_n=0;gpio_n<NR_GPIO_IRQS;gpio_n++)
+        	{
+              		if (__raw_readl(GPIO_INTR_STS(gpio_n))&0x1)
+				printk("-GPIO%d INT_CFG:%x, INT_STS:%x \n" ,gpio_n,__raw_readl(GPIO_INTR_CFG(gpio_n)),__raw_readl(GPIO_INTR_STS(gpio_n))); //Ledger
+		}
+	}
 }
 
 /*
@@ -390,10 +431,63 @@ void msm_pm_set_max_sleep_time(int64_t max_sleep_time_ns)
 }
 EXPORT_SYMBOL(msm_pm_set_max_sleep_time);
 
+struct reg_data {
+	uint32_t reg;
+	uint32_t val;
+};
 
-/******************************************************************************
- *
- *****************************************************************************/
+static struct reg_data reg_saved_state[] = {
+	{ .reg = 0x4501, },
+	{ .reg = 0x5501, },
+	{ .reg = 0x6501, },
+	{ .reg = 0x7501, },
+	{ .reg = 0x0500, },
+};
+
+static unsigned int active_vdd;
+static bool msm_pm_save_cp15;
+static const unsigned int pc_vdd = 0x98;
+
+static void msm_pm_save_cpu_reg(void)
+{
+	int i;
+
+	/* Only on core0 */
+	if (smp_processor_id())
+		return;
+
+	/**
+	 * On some targets, L2 PC will turn off may reset the core
+	 * configuration for the mux and the default may not make the core
+	 * happy when it resumes.
+	 * Save the active vdd, and set the core vdd to QSB max vdd, so that
+	 * when the core resumes, it is capable of supporting the current QSB
+	 * rate. Then restore the active vdd before switching the acpuclk rate.
+	 */
+	if (msm_pm_get_l2_flush_flag() == 1) {
+		active_vdd = msm_spm_get_vdd(0);
+		for (i = 0; i < ARRAY_SIZE(reg_saved_state); i++)
+			reg_saved_state[i].val =
+				get_l2_indirect_reg(reg_saved_state[i].reg);
+		msm_spm_set_vdd(0, pc_vdd);
+	}
+}
+
+static void msm_pm_restore_cpu_reg(void)
+{
+	int i;
+
+	/* Only on core0 */
+	if (smp_processor_id())
+		return;
+
+	if (msm_pm_get_l2_flush_flag() == 1) {
+		for (i = 0; i < ARRAY_SIZE(reg_saved_state); i++)
+			set_l2_indirect_reg(reg_saved_state[i].reg,
+					reg_saved_state[i].val);
+		msm_spm_set_vdd(0, active_vdd);
+	}
+}
 
 static void *msm_pm_idle_rs_limits;
 static bool msm_pm_use_qtimer;
@@ -515,7 +609,8 @@ static bool msm_pm_power_collapse(bool from_idle)
 		pr_info("CPU%u: %s: idle %d\n",
 			cpu, __func__, (int)from_idle);
 
-	msm_pm_config_hw_before_power_down();
+//	msm_pm_config_hw_before_power_down();	//Ledger
+
 	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: pre power down\n", cpu, __func__);
 
@@ -531,7 +626,13 @@ static bool msm_pm_power_collapse(bool from_idle)
 		pr_info("CPU%u: %s: change clock rate (old rate = %lu)\n",
 			cpu, __func__, saved_acpuclk_rate);
 
+	if (msm_pm_save_cp15)
+		msm_pm_save_cpu_reg();
+
 	collapsed = msm_pm_spm_power_collapse(cpu, from_idle, true);
+
+	if (msm_pm_save_cp15)
+		msm_pm_restore_cpu_reg();
 
 	if (cpu_online(cpu)) {
 		if (MSM_PM_DEBUG_CLOCK & msm_pm_debug_mask)
@@ -557,7 +658,9 @@ static bool msm_pm_power_collapse(bool from_idle)
 
 
 	avs_reset_delays(avsdscr_setting);
-	msm_pm_config_hw_after_power_up();
+
+//	msm_pm_config_hw_after_power_up();	//Ledger
+
 	if (MSM_PM_DEBUG_POWER_COLLAPSE & msm_pm_debug_mask)
 		pr_info("CPU%u: %s: post power up\n", cpu, __func__);
 
@@ -566,9 +669,12 @@ static bool msm_pm_power_collapse(bool from_idle)
 	return collapsed;
 }
 
-static void msm_pm_qtimer_available(void)
+static void msm_pm_target_init(void)
 {
-	if (machine_is_copper())
+	if (cpu_is_apq8064())
+		msm_pm_save_cp15 = true;
+
+	if (cpu_is_msm8974())
 		msm_pm_use_qtimer = true;
 }
 
@@ -879,11 +985,12 @@ int msm_pm_wait_cpu_shutdown(unsigned int cpu)
 			__func__, cpu);
 	return -EBUSY;
 }
-
+extern int g_hdp_feature; //Mickey+++
 static int msm_pm_enter(suspend_state_t state)
 {
 	bool allow[MSM_PM_SLEEP_MODE_NR];
 	int i;
+	unsigned int elapsed_time;
 	int64_t period = 0;
 	int64_t time = msm_pm_timer_enter_suspend(&period);
 
@@ -903,6 +1010,10 @@ static int msm_pm_enter(suspend_state_t state)
 		allow[i] = mode->suspend_supported && mode->suspend_enabled;
 	}
 
+    //Mickey+++, only switch 5V when hpd enabled
+    if (g_hdp_feature)
+	    gpio_set_value(g_GPIO_HDMI_5V_ENABLE,0);//[CY]Turn off HDMI_5V in Apps power collapse
+    //Mickey---
 	if (allow[MSM_PM_SLEEP_MODE_POWER_COLLAPSE]) {
 		void *rs_limits = NULL;
 		int ret = -ENODEV;
@@ -911,6 +1022,7 @@ static int msm_pm_enter(suspend_state_t state)
 		if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 			pr_info("%s: power collapse\n", __func__);
 
+		msm_pm_config_hw_before_power_down();//Ledger
 		clock_debug_print_enabled();
 
 #ifdef CONFIG_MSM_SLEEP_TIME_OVERRIDE
@@ -944,6 +1056,14 @@ static int msm_pm_enter(suspend_state_t state)
 		}
 		time = msm_pm_timer_exit_suspend(time, period);
 		msm_pm_add_stat(MSM_PM_STAT_SUSPEND, time);
+		
+		do_div(time ,NSEC_PER_SEC / 100 );
+		elapsed_time = time;
+		
+                pr_info("[PM]suspended for %d.%03d seconds\n", elapsed_time / 100 , elapsed_time % 100);
+                       //Ledger
+		pwrcs_time=elapsed_time;
+                msm_pm_config_hw_after_power_up();      //Ledger
 	} else if (allow[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_STANDALONE]) {
 		if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 			pr_info("%s: standalone power collapse\n", __func__);
@@ -958,6 +1078,10 @@ static int msm_pm_enter(suspend_state_t state)
 		msm_pm_swfi();
 	}
 
+    //Mickey+++, only switch 5V when hpd enabled
+    if (g_hdp_feature)
+	    gpio_set_value(g_GPIO_HDMI_5V_ENABLE,1);//[CY]Turn on HDMI_5V after exiting Apps power collapse
+    //Mickey---
 
 enter_exit:
 	if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
@@ -1040,12 +1164,15 @@ static int __init msm_pm_init(void)
 	msm_pm_mode_sysfs_add();
 	msm_pm_add_stats(enable_stats, ARRAY_SIZE(enable_stats));
 
-	msm_spm_allow_x_cpu_set_vdd(false);
-
 	suspend_set_ops(&msm_pm_ops);
-	msm_pm_qtimer_available();
+	msm_pm_target_init();
 	msm_cpuidle_init();
-
+	
+	//[+++][CY]Turn off HDMI_5V in Apps power collapse
+	if (gpio_request(g_GPIO_HDMI_5V_ENABLE,"hdmi_ddc_boost5v") < 0) {
+            pr_err("[PM][Error] Failed to get gpio %d\n",g_GPIO_HDMI_5V_ENABLE);
+        }
+	//[---][CY]Turn off HDMI_5V in Apps power collapse
 	return 0;
 }
 

@@ -50,7 +50,7 @@
 #include "scm-pas.h"
 #include <mach/msm_dcvs.h>
 #include <mach/iommu_domains.h>
-
+#include <mach/msm_xo.h>
 #ifdef CONFIG_MSM_MPM
 #include <mach/mpm.h>
 #endif
@@ -729,6 +729,7 @@ struct msm_vidc_platform_data vidc_platform_data = {
 	.disable_dmx = 0,
 	.disable_fullhd = 0,
 	.cont_mode_dpb_count = 18,
+	.fw_addr = 0x9fe00000,
 };
 
 struct platform_device msm_device_vidc = {
@@ -1035,6 +1036,8 @@ static struct pil_q6v4_pdata msm_8960_q6_mss_fw_data = {
 	.strap_ahb_lower = 0x00000080,
 	.aclk_reg = SFAB_MSS_Q6_FW_ACLK_CTL,
 	.jtag_clk_reg = MSS_Q6FW_JTAG_CLK_CTL,
+    .xo1_id = MSM_XO_TCXO_A0,
+    .xo2_id = MSM_XO_TCXO_A1,
 	.name = "modem_fw",
 	.depends = "q6",
 	.pas_id = PAS_MODEM_FW,
@@ -1444,6 +1447,18 @@ static struct resource resources_qup_i2c_gsbi10[] = {
 		.end	= GSBI10_QUP_IRQ,
 		.flags	= IORESOURCE_IRQ,
 	},
+    {
+        .name    = "i2c_clk",
+        .start    = 74,
+        .end    = 74,
+        .flags    = IORESOURCE_IO,
+    },
+    {
+        .name    = "i2c_sda",
+        .start    = 73,
+        .end    = 73,
+        .flags    = IORESOURCE_IO,
+    },
 };
 
 struct platform_device msm8960_device_qup_i2c_gsbi10 = {
@@ -1842,6 +1857,10 @@ static struct resource resources_qup_spi_gsbi1[] = {
 		.end    = MSM8960_GSBI1_QUP_IRQ,
 		.flags  = IORESOURCE_IRQ,
 	},
+
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/11/4] Modify Begin
+#if 0		
 	{
 		.name   = "spi_clk",
 		.start  = 9,
@@ -1872,6 +1891,9 @@ static struct resource resources_qup_spi_gsbi1[] = {
 		.end    = 14,
 		.flags  = IORESOURCE_IO,
 	},
+#endif	
+//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/11/4] Modify End
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 };
 
 struct platform_device msm8960_device_qup_spi_gsbi1 = {
@@ -2104,6 +2126,8 @@ static struct fs_driver_data mdp_fs_data = {
 		{ .name = "lut_clk" },
 		{ .name = "tv_src_clk" },
 		{ .name = "tv_clk" },
+		{ .name = "reset1_clk" },
+		{ .name = "reset2_clk" },
 		{ 0 }
 	},
 	.bus_port0 = MSM_BUS_MASTER_MDP_PORT0,
@@ -2155,8 +2179,8 @@ struct platform_device *msm8960_footswitch[] __initdata = {
 	FS_8X60(FS_MDP,    "vdd",	"mdp.0",	&mdp_fs_data),
 	FS_8X60(FS_ROT,    "vdd",	"msm_rotator.0", &rot_fs_data),
 	FS_8X60(FS_IJPEG,  "vdd",	"msm_gemini.0",	&ijpeg_fs_data),
-	FS_8X60(FS_VFE,    "fs_vfe",	NULL,	&vfe_fs_data),
-	FS_8X60(FS_VPE,    "fs_vpe",	NULL,	&vpe_fs_data),
+	FS_8X60(FS_VFE,    "vdd",	"msm_vfe.0",	&vfe_fs_data),
+	FS_8X60(FS_VPE,    "vdd",	"msm_vpe.0",	&vpe_fs_data),
 	FS_8X60(FS_GFX3D,  "vdd",	"kgsl-3d0.0",	&gfx3d_fs_data),
 	FS_8X60(FS_GFX2D0, "vdd",	"kgsl-2d0.0",	&gfx2d0_fs_data),
 	FS_8X60(FS_GFX2D1, "vdd",	"kgsl-2d1.1",	&gfx2d1_fs_data),
@@ -2178,8 +2202,8 @@ static struct msm_bus_vectors rotator_ui_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_ROTATOR,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = (1024 * 600 * 4 * 2 * 60),
-		.ib  = (1024 * 600 * 4 * 2 * 60 * 1.5),
+		.ab  = (1280 * 960 * 4 * 2 * 60),//(1024 * 600 * 4 * 2 * 60),
+		.ib  = (1280 * 960 * 4 * 2 * 60 * 1.5),//(1024 * 600 * 4 * 2 * 60 * 1.5),
 	},
 };
 
@@ -2187,8 +2211,8 @@ static struct msm_bus_vectors rotator_vga_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_ROTATOR,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab  = (640 * 480 * 2 * 2 * 30),
-		.ib  = (640 * 480 * 2 * 2 * 30 * 1.5),
+		.ab  = (1280 * 960 * 4 * 2 * 60),//(640 * 480 * 2 * 2 * 30),
+		.ib  = (1280 * 960 * 4 * 2 * 60),//(640 * 480 * 2 * 2 * 30 * 1.5),
 	},
 };
 static struct msm_bus_vectors rotator_720p_vectors[] = {
@@ -2290,6 +2314,11 @@ struct platform_device msm_rotator_device = {
 		.platform_data = &rotator_pdata,
 	},
 };
+
+void __init msm_rotator_set_split_iommu_domain(void)
+{
+	rotator_pdata.rot_iommu_split_domain = 1;
+}
 #endif
 
 #define MIPI_DSI_HW_BASE        0x04700000
@@ -3301,8 +3330,8 @@ struct platform_device msm8960_rpm_log_device = {
 };
 
 static struct msm_rpmstats_platform_data msm_rpm_stat_pdata = {
-	.phys_addr_base = 0x0010D204,
-	.phys_size = SZ_8K,
+	.phys_addr_base = 0x0010DD04,
+	.phys_size = SZ_256,
 };
 
 struct platform_device msm8960_rpm_stat_device = {
@@ -3642,12 +3671,12 @@ struct msm_iommu_domain_name msm8960_iommu_ctx_names[] = {
 	/* Rotator */
 	{
 		.name = "rot_src",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_SRC_DOMAIN,
 	},
 	/* Rotator */
 	{
 		.name = "rot_dst",
-		.domain = ROTATOR_DOMAIN,
+		.domain = ROTATOR_SRC_DOMAIN,
 	},
 	/* Video */
 	{
@@ -3703,18 +3732,18 @@ static struct mem_pool msm8960_camera_pools[] =  {
 		},
 };
 
-static struct mem_pool msm8960_display_pools[] =  {
+static struct mem_pool msm8960_display_read_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for display */
+	/* One address space for display reads */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
 		},
 };
 
-static struct mem_pool msm8960_rotator_pools[] =  {
+static struct mem_pool msm8960_rotator_src_pools[] =  {
 	[GEN_POOL] =
-	/* One address space for rotator */
+	/* One address space for rotator src */
 		{
 			.paddr	= SZ_128K,
 			.size	= SZ_2G - SZ_128K,
@@ -3730,13 +3759,13 @@ static struct msm_iommu_domain msm8960_iommu_domains[] = {
 			.iova_pools = msm8960_camera_pools,
 			.npools = ARRAY_SIZE(msm8960_camera_pools),
 		},
-		[DISPLAY_DOMAIN] = {
-			.iova_pools = msm8960_display_pools,
-			.npools = ARRAY_SIZE(msm8960_display_pools),
+		[DISPLAY_READ_DOMAIN] = {
+			.iova_pools = msm8960_display_read_pools,
+			.npools = ARRAY_SIZE(msm8960_display_read_pools),
 		},
-		[ROTATOR_DOMAIN] = {
-			.iova_pools = msm8960_rotator_pools,
-			.npools = ARRAY_SIZE(msm8960_rotator_pools),
+		[ROTATOR_SRC_DOMAIN] = {
+			.iova_pools = msm8960_rotator_src_pools,
+			.npools = ARRAY_SIZE(msm8960_rotator_src_pools),
 		},
 };
 

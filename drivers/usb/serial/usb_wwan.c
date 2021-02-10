@@ -38,6 +38,15 @@
 #include "usb-wwan.h"
 
 static bool debug;
+//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+static struct workqueue_struct *msm_usb_wwan_wq;
+//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+static struct usb_wwan_port_private *s_portdata = NULL;
+static u8 *s_inbuf[N_IN_URB] = {0};
+static u8 *s_outbuf[N_OUT_URB] = {0};
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 
 void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 {
@@ -283,6 +292,7 @@ static void usb_wwan_in_work(struct work_struct *w)
 {
 	struct usb_wwan_port_private *portdata =
 		container_of(w, struct usb_wwan_port_private, in_work);
+	struct usb_wwan_intf_private *intfdata;
 	struct list_head *q = &portdata->in_urb_list;
 	struct urb *urb;
 	unsigned char *data;
@@ -302,9 +312,11 @@ static void usb_wwan_in_work(struct work_struct *w)
 
 		tty = tty_port_tty_get(&port->port);
 		if (!tty)
-			continue;
+			break;
 
-		list_del_init(&urb->urb_list);
+		/* list_empty() will still be false after this; it means
+		 * URB is still being processed */
+		list_del(&urb->urb_list);
 
 		spin_unlock_irqrestore(&portdata->in_lock, flags);
 
@@ -326,18 +338,27 @@ static void usb_wwan_in_work(struct work_struct *w)
 			spin_unlock_irqrestore(&portdata->in_lock, flags);
 			return;
 		}
+
+		/* re-init list pointer to indicate we are done with it */
+		INIT_LIST_HEAD(&urb->urb_list);
+
 		portdata->n_read = 0;
+		intfdata = port->serial->private;
 
-		usb_anchor_urb(urb, &portdata->submitted);
-		err = usb_submit_urb(urb, GFP_ATOMIC);
-		if (err) {
-			usb_unanchor_urb(urb);
-			if (err != -EPERM)
-				pr_err("%s: submit read urb failed:%d",
-						__func__, err);
+		spin_lock_irqsave(&intfdata->susp_lock, flags);
+		if (!intfdata->suspended && !urb->anchor) {
+			usb_anchor_urb(urb, &portdata->submitted);
+			err = usb_submit_urb(urb, GFP_ATOMIC);
+			if (err) {
+				usb_unanchor_urb(urb);
+				if (err != -EPERM)
+					pr_err("%s: submit read urb failed:%d",
+							__func__, err);
+			}
+
+			usb_mark_last_busy(port->serial->dev);
 		}
-
-		usb_mark_last_busy(port->serial->dev);
+		spin_unlock_irqrestore(&intfdata->susp_lock, flags);
 		spin_lock_irqsave(&portdata->in_lock, flags);
 	}
 	spin_unlock_irqrestore(&portdata->in_lock, flags);
@@ -348,6 +369,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	int err;
 	int endpoint;
 	struct usb_wwan_port_private *portdata;
+	struct usb_wwan_intf_private *intfdata;
 	struct usb_serial_port *port;
 	int status = urb->status;
 	unsigned long flags;
@@ -357,21 +379,31 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	endpoint = usb_pipeendpoint(urb->pipe);
 	port = urb->context;
 	portdata = usb_get_serial_port_data(port);
+	intfdata = port->serial->private;
 
 	usb_mark_last_busy(port->serial->dev);
 
-	if (!status && urb->actual_length) {
+	if ((status == -ENOENT || !status) && urb->actual_length) {
 		spin_lock_irqsave(&portdata->in_lock, flags);
 		list_add_tail(&urb->urb_list, &portdata->in_urb_list);
 		spin_unlock_irqrestore(&portdata->in_lock, flags);
 
-		schedule_work(&portdata->in_work);
+		//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+		queue_work_on(0, msm_usb_wwan_wq, &portdata->in_work);
+		//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 
 		return;
 	}
 
 	dbg("%s: nonzero status: %d on endpoint %02x.",
 		__func__, status, endpoint);
+
+	spin_lock(&intfdata->susp_lock);
+	if (intfdata->suspended || !portdata->opened) {
+		spin_unlock(&intfdata->susp_lock);
+		return;
+	}
+	spin_unlock(&intfdata->susp_lock);
 
 	if (status != -ESHUTDOWN) {
 		usb_anchor_urb(urb, &portdata->submitted);
@@ -477,7 +509,9 @@ void usb_wwan_unthrottle(struct tty_struct *tty)
 	port->throttle_req = false;
 	port->throttled = false;
 
-	schedule_work(&portdata->in_work);
+	//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+	queue_work_on(0, msm_usb_wwan_wq, &portdata->in_work);
+	//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 }
 EXPORT_SYMBOL(usb_wwan_unthrottle);
 
@@ -495,6 +529,7 @@ int usb_wwan_open(struct tty_struct *tty, struct usb_serial_port *port)
 	/* explicitly set the driver mode to raw */
 	tty->raw = 1;
 	tty->real_raw = 1;
+	tty->update_room_in_ldisc = 1;
 
 	set_bit(TTY_NO_WRITE_SPLIT, &tty->flags);
 	dbg("%s", __func__);
@@ -632,12 +667,22 @@ int usb_wwan_startup(struct usb_serial *serial)
 	/* Now setup per port private data */
 	for (i = 0; i < serial->num_ports; i++) {
 		port = serial->port[i];
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+		if (0 == i) {
+			if (NULL == s_portdata) {
+				s_portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
+			}
+			portdata = s_portdata;
+		}
+		else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 		portdata = kzalloc(sizeof(*portdata), GFP_KERNEL);
 		if (!portdata) {
 			dbg("%s: kmalloc for usb_wwan_port_private (%d) failed!.",
 			    __func__, i);
 			return 1;
 		}
+		memset(portdata, 0, sizeof(*portdata)); // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 		init_usb_anchor(&portdata->delayed);
 		init_usb_anchor(&portdata->submitted);
 		INIT_WORK(&portdata->in_work, usb_wwan_in_work);
@@ -645,6 +690,15 @@ int usb_wwan_startup(struct usb_serial *serial)
 		spin_lock_init(&portdata->in_lock);
 
 		for (j = 0; j < N_IN_URB; j++) {
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+			if (0 == i) {
+				if (!s_inbuf[j]) {
+					s_inbuf[j] = kmalloc(IN_BUFLEN, GFP_KERNEL);
+				}
+				buffer = s_inbuf[j];
+			}
+			else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 			buffer = kmalloc(IN_BUFLEN, GFP_KERNEL);
 			if (!buffer)
 				goto bail_out_error;
@@ -652,6 +706,15 @@ int usb_wwan_startup(struct usb_serial *serial)
 		}
 
 		for (j = 0; j < N_OUT_URB; j++) {
+// ASUS_BSP+++ Wenli "Don't remove buffers of ttyUSB0"
+			if (0 == i) {
+				if (!s_outbuf[j]) {
+					s_outbuf[j] = kmalloc(OUT_BUFLEN, GFP_KERNEL);
+				}
+				buffer = s_outbuf[j];
+			}
+			else
+// ASUS_BSP--- Wenli "Don't remove buffers of ttyUSB0"
 			buffer = kmalloc(OUT_BUFLEN, GFP_KERNEL);
 			if (!buffer)
 				goto bail_out_error2;
@@ -667,15 +730,24 @@ int usb_wwan_startup(struct usb_serial *serial)
 			dbg("%s: submit irq_in urb failed %d", __func__, err);
 	}
 	usb_wwan_setup_urbs(serial);
+	//ASUS_BSP+++ BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
+	if (!msm_usb_wwan_wq)
+		msm_usb_wwan_wq = create_singlethread_workqueue("msm_usb_wwan_wq");
+	//ASUS_BSP--- BennyCheng "fix null pointer panic in usb_wwan_in_work() when power on"
 	return 0;
 
 bail_out_error2:
-	for (j = 0; j < N_OUT_URB; j++)
+	for (j = 0; j < N_OUT_URB; j++) {
 		kfree(portdata->out_buffer[j]);
+		s_inbuf[j] = 0; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
+	}
 bail_out_error:
-	for (j = 0; j < N_IN_URB; j++)
+	for (j = 0; j < N_IN_URB; j++) {
 		kfree(portdata->in_buffer[j]);
+		s_outbuf[j] = 0; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
+	}
 	kfree(portdata);
+	s_portdata = NULL; // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 	return 1;
 }
 EXPORT_SYMBOL(usb_wwan_startup);
@@ -728,18 +800,20 @@ void usb_wwan_release(struct usb_serial *serial)
 
 		for (j = 0; j < N_IN_URB; j++) {
 			usb_free_urb(portdata->in_urbs[j]);
+			if (0 != i) // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 			kfree(portdata->in_buffer[j]);
 			portdata->in_urbs[j] = NULL;
 		}
 		for (j = 0; j < N_OUT_URB; j++) {
 			usb_free_urb(portdata->out_urbs[j]);
+			if (0 != i) // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 			kfree(portdata->out_buffer[j]);
 			portdata->out_urbs[j] = NULL;
 		}
 	}
 
 	/* Now free per port private data */
-	for (i = 0; i < serial->num_ports; i++) {
+	for (i = 1; i < serial->num_ports; i++) { // ASUS_BSP+ Wenli "Don't remove buffers of ttyUSB0"
 		port = serial->port[i];
 		kfree(usb_get_serial_port_data(port));
 	}
@@ -759,7 +833,7 @@ int usb_wwan_suspend(struct usb_serial *serial, pm_message_t message)
 		b = intfdata->in_flight;
 		spin_unlock_irq(&intfdata->susp_lock);
 
-		if (b)
+		if (b || pm_runtime_autosuspend_expiration(&serial->dev->dev))
 			return -EBUSY;
 	}
 
@@ -849,11 +923,17 @@ int usb_wwan_resume(struct usb_serial *serial)
 
 		for (j = 0; j < N_IN_URB; j++) {
 			urb = portdata->in_urbs[j];
+
+			/* don't re-submit if it already was submitted or if
+			 * it is being processed by in_work */
+			if (urb->anchor || !list_empty(&urb->urb_list))
+				continue;
+
 			usb_anchor_urb(urb, &portdata->submitted);
 			err = usb_submit_urb(urb, GFP_ATOMIC);
 			if (err < 0) {
-				err("%s: Error %d for bulk URB %d",
-				    __func__, err, i);
+				err("%s: Error %d for bulk URB[%d]:%p %d",
+				    __func__, err, j, urb, i);
 				usb_unanchor_urb(urb);
 				intfdata->suspended = 1;
 				spin_unlock_irq(&intfdata->susp_lock);

@@ -62,9 +62,9 @@ static struct ion_client *kgsl_ion_client;
  * @returns - 0 on success or error code on failure
  */
 
-static int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
+int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 	void (*cb)(struct kgsl_device *, void *, u32, u32), void *priv,
-	struct kgsl_device_private *owner)
+	void *owner)
 {
 	struct kgsl_event *event;
 	struct list_head *n;
@@ -122,6 +122,7 @@ static int kgsl_add_event(struct kgsl_device *device, u32 id, u32 ts,
 	queue_work(device->work_queue, &device->ts_expired_ws);
 	return 0;
 }
+EXPORT_SYMBOL(kgsl_add_event);
 
 /**
  * kgsl_cancel_events_ctxt - Cancel all events for a context
@@ -162,8 +163,8 @@ static void kgsl_cancel_events_ctxt(struct kgsl_device *device,
  * @owner - driver instance that owns the events to cancel
  *
  */
-static void kgsl_cancel_events(struct kgsl_device *device,
-	struct kgsl_device_private *owner)
+void kgsl_cancel_events(struct kgsl_device *device,
+	void *owner)
 {
 	struct kgsl_event *event, *event_tmp;
 	unsigned int id, cur;
@@ -189,6 +190,7 @@ static void kgsl_cancel_events(struct kgsl_device *device,
 		kfree(event);
 	}
 }
+EXPORT_SYMBOL(kgsl_cancel_events);
 
 /* kgsl_get_mem_entry - get the mem_entry structure for the specified object
  * @ptbase - the pagetable base of the object
@@ -247,13 +249,12 @@ kgsl_mem_entry_destroy(struct kref *kref)
 		kgsl_driver.stats.mapped -= entry->memdesc.size;
 
 	/*
-	 * Ion takes care of freeing the sglist for us (how nice </sarcasm>) so
-	 * unmap the dma before freeing the sharedmem so kgsl_sharedmem_free
+	 * Ion takes care of freeing the sglist for us so
+	 * clear the sg before freeing the sharedmem so kgsl_sharedmem_free
 	 * doesn't try to free it again
 	 */
 
 	if (entry->memtype == KGSL_MEM_ENTRY_ION) {
-		ion_unmap_dma(kgsl_ion_client, entry->priv_data);
 		entry->memdesc.sg = NULL;
 	}
 
@@ -439,8 +440,6 @@ void kgsl_timestamp_expired(struct work_struct *work)
 		kfree(event);
 	}
 
-	device->last_expired_ctxt_id = KGSL_CONTEXT_INVALID;
-
 	mutex_unlock(&device->mutex);
 }
 EXPORT_SYMBOL(kgsl_timestamp_expired);
@@ -559,7 +558,7 @@ static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 			break;
 		case KGSL_STATE_ACTIVE:
 			/* Wait for the device to become idle */
-			device->ftbl->idle(device, KGSL_TIMEOUT_DEFAULT);
+			device->ftbl->idle(device);
 		case KGSL_STATE_NAP:
 		case KGSL_STATE_SLEEP:
 			/* Get the completion ready to be waited upon. */
@@ -649,6 +648,7 @@ void kgsl_early_suspend_driver(struct early_suspend *h)
 					struct kgsl_device, display_off);
 	KGSL_PWR_WARN(device, "early suspend start\n");
 	mutex_lock(&device->mutex);
+	device->pwrctrl.restore_slumber = true;
 	kgsl_pwrctrl_request_state(device, KGSL_STATE_SLUMBER);
 	kgsl_pwrctrl_sleep(device);
 	mutex_unlock(&device->mutex);
@@ -677,7 +677,7 @@ void kgsl_late_resume_driver(struct early_suspend *h)
 					struct kgsl_device, display_off);
 	KGSL_PWR_WARN(device, "late resume start\n");
 	mutex_lock(&device->mutex);
-	device->pwrctrl.restore_slumber = 0;
+	device->pwrctrl.restore_slumber = false;
 	if (device->pwrscale.policy == NULL)
 		kgsl_pwrctrl_pwrlevel_change(device, KGSL_PWRLEVEL_TURBO);
 	kgsl_pwrctrl_wake(device);
@@ -897,6 +897,9 @@ kgsl_sharedmem_find_region(struct kgsl_process_private *private,
 	unsigned int gpuaddr, size_t size)
 {
 	struct rb_node *node = private->mem_rb.rb_node;
+
+	if (!kgsl_mmu_gpuaddr_in_range(gpuaddr))
+		return NULL;
 
 	while (node != NULL) {
 		struct kgsl_mem_entry *entry;
@@ -1518,42 +1521,43 @@ static int kgsl_setup_phys_file(struct kgsl_mem_entry *entry,
 	if (ret)
 		return ret;
 
-	if (phys == 0) {
-		ret = -EINVAL;
+	ret = -ERANGE;
+
+	if (phys == 0)
+		goto err;
+
+	/* Make sure the length of the region, the offset and the desired
+	 * size are all page aligned or bail
+	 */
+	if ((len & ~PAGE_MASK) ||
+		(offset & ~PAGE_MASK) ||
+		(size & ~PAGE_MASK)) {
+		KGSL_CORE_ERR("length offset or size is not page aligned\n");
 		goto err;
 	}
 
-	if (offset >= len) {
-		ret = -EINVAL;
+	/* The size or offset can never be greater than the PMEM length */
+	if (offset >= len || size > len)
 		goto err;
-	}
 
+	/* If size is 0, then adjust it to default to the size of the region
+	 * minus the offset.  If size isn't zero, then make sure that it will
+	 * fit inside of the region.
+	 */
 	if (size == 0)
-		size = len;
+		size = len - offset;
 
-	/* Adjust the size of the region to account for the offset */
-	size += offset & ~PAGE_MASK;
-
-	size = ALIGN(size, PAGE_SIZE);
-
-	if (_check_region(offset & PAGE_MASK, size, len)) {
-		KGSL_CORE_ERR("Offset (%ld) + size (%d) is larger"
-			      "than pmem region length %ld\n",
-			      offset & PAGE_MASK, size, len);
-		ret = -EINVAL;
+	else if (_check_region(offset, size, len))
 		goto err;
-
-	}
 
 	entry->priv_data = filep;
 
 	entry->memdesc.pagetable = pagetable;
 	entry->memdesc.size = size;
-	entry->memdesc.physaddr = phys + (offset & PAGE_MASK);
-	entry->memdesc.hostptr = (void *) (virt + (offset & PAGE_MASK));
+	entry->memdesc.physaddr = phys + offset;
+	entry->memdesc.hostptr = (void *) (virt + offset);
 
-	ret = memdesc_sg_phys(&entry->memdesc,
-		phys + (offset & PAGE_MASK), size);
+	ret = memdesc_sg_phys(&entry->memdesc, phys + offset, size);
 	if (ret)
 		goto err;
 
@@ -1746,27 +1750,28 @@ static int kgsl_setup_ion(struct kgsl_mem_entry *entry,
 {
 	struct ion_handle *handle;
 	struct scatterlist *s;
-	unsigned long flags;
+	struct sg_table *sg_table;
 
 	if (IS_ERR_OR_NULL(kgsl_ion_client))
 		return -ENODEV;
 
-	handle = ion_import_fd(kgsl_ion_client, fd);
-	if (IS_ERR_OR_NULL(handle))
+	handle = ion_import_dma_buf(kgsl_ion_client, fd);
+	if (IS_ERR(handle))
 		return PTR_ERR(handle);
+	else if (!handle)
+		return -EINVAL;
 
 	entry->memtype = KGSL_MEM_ENTRY_ION;
 	entry->priv_data = handle;
 	entry->memdesc.pagetable = pagetable;
 	entry->memdesc.size = 0;
 
-	if (ion_handle_get_flags(kgsl_ion_client, handle, &flags))
+	sg_table = ion_sg_table(kgsl_ion_client, handle);
+
+	if (IS_ERR_OR_NULL(sg_table))
 		goto err;
 
-	entry->memdesc.sg = ion_map_dma(kgsl_ion_client, handle, flags);
-
-	if (IS_ERR_OR_NULL(entry->memdesc.sg))
-		goto err;
+	entry->memdesc.sg = sg_table->sgl;
 
 	/* Calculate the size of the memdesc from the sglist */
 
@@ -1890,7 +1895,6 @@ error_put_file_ptr:
 			fput(entry->priv_data);
 		break;
 	case KGSL_MEM_ENTRY_ION:
-		ion_unmap_dma(kgsl_ion_client, entry->priv_data);
 		ion_free(kgsl_ion_client, entry->priv_data);
 		break;
 	default:
@@ -2162,7 +2166,7 @@ static const struct {
 static long kgsl_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct kgsl_device_private *dev_priv = filep->private_data;
-	unsigned int nr = _IOC_NR(cmd);
+	unsigned int nr;
 	kgsl_ioctl_func_t func;
 	int lock, ret;
 	char ustack[64];
@@ -2177,6 +2181,8 @@ static long kgsl_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		cmd = IOCTL_KGSL_CMDSTREAM_FREEMEMONTIMESTAMP;
 	else if (cmd == IOCTL_KGSL_CMDSTREAM_READTIMESTAMP_OLD)
 		cmd = IOCTL_KGSL_CMDSTREAM_READTIMESTAMP;
+
+	nr = _IOC_NR(cmd);
 
 	if (cmd & (IOC_IN | IOC_OUT)) {
 		if (_IOC_SIZE(cmd) < sizeof(ustack))
@@ -2202,7 +2208,20 @@ static long kgsl_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 	}
 
 	if (nr < ARRAY_SIZE(kgsl_ioctl_funcs) &&
-	    kgsl_ioctl_funcs[nr].func != NULL) {
+		kgsl_ioctl_funcs[nr].func != NULL) {
+
+		/*
+		 * Make sure that nobody tried to send us a malformed ioctl code
+		 * with a valid NR but bogus flags
+		 */
+
+		if (kgsl_ioctl_funcs[nr].cmd != cmd) {
+			KGSL_DRV_ERR(dev_priv->device,
+				"Malformed ioctl code %08x\n", cmd);
+			ret = -ENOIOCTLCMD;
+			goto done;
+		}
+
 		func = kgsl_ioctl_funcs[nr].func;
 		lock = kgsl_ioctl_funcs[nr].lock;
 	} else {

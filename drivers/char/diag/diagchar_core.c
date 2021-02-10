@@ -93,6 +93,26 @@ do {								\
 	ret += length;						\
 } while (0)
 
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+typedef struct diag_buffer_head_type {
+	int32_t datatype;
+	int32_t num_data;
+	uint32_t data_size;
+}  diag_buffer_head_t;
+ 
+#define COPY_USER_SPACE_OR_EXIT1(data, length) \
+do { \
+	if (count < (sizeof(diag_buffer_head_t) + temp_buf_size + length)) { \
+		goto buffer_full_exit; \
+	} else if (copy_to_user(buf + sizeof(diag_buffer_head_t) + temp_buf_size, data, length)) { \
+		pr_err("copy_to_user L%d\n", __LINE__); \
+		goto buffer_full_exit; \
+	} else { \
+		temp_buf_size += length; \
+	} \
+} while (0)
+// ASUS_BSP--- Wenli "Improve diag to sd"
+
 static void drain_timer_func(unsigned long data)
 {
 	queue_work(driver->diag_wq , &(driver->diag_drain_work));
@@ -233,6 +253,11 @@ static int diagchar_close(struct inode *inode, struct file *file)
 #ifdef CONFIG_DIAG_OVER_USB
 	/* If the SD logging process exits, change logging to USB mode */
 	if (driver->logging_process_id == current->tgid) {
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+		driver->is_sd_close = true;
+		driver->head = driver->tail = driver->buf_used = 0;
+		driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 		driver->logging_mode = USB_MODE;
 		diagfwd_connect();
 #ifdef CONFIG_DIAG_BRIDGE_CODE
@@ -492,6 +517,11 @@ long diagchar_ioctl(struct file *filp,
 							== NO_LOGGING_MODE) {
 			driver->in_busy_1 = 1;
 			driver->in_busy_2 = 1;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+			driver->is_sd_close = true;
+			driver->head = driver->tail = driver->buf_used = 0;
+			driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 			driver->in_busy_qdsp_1 = 1;
 			driver->in_busy_qdsp_2 = 1;
 			driver->in_busy_wcnss_1 = 1;
@@ -506,6 +536,11 @@ long diagchar_ioctl(struct file *filp,
 							== MEMORY_DEVICE_MODE) {
 			driver->in_busy_1 = 0;
 			driver->in_busy_2 = 0;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+			driver->is_sd_close = false;
+			driver->head = driver->tail = driver->buf_used = 0;
+			driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 			driver->in_busy_qdsp_1 = 0;
 			driver->in_busy_qdsp_2 = 0;
 			driver->in_busy_wcnss_1 = 0;
@@ -603,51 +638,55 @@ static int diagchar_read(struct file *file, char __user *buf, size_t count,
 		return -EINVAL;
 	}
 
-	wait_event_interruptible(driver->wait_q,
-				  driver->data_ready[index]);
+	if (wait_event_interruptible(driver->wait_q, driver->data_ready[index])) {
+		// Return 0 to restart the read
+		return 0;
+	}
 	mutex_lock(&driver->diagchar_mutex);
 
 	if ((driver->data_ready[index] & USER_SPACE_LOG_TYPE) && (driver->
 					logging_mode == MEMORY_DEVICE_MODE)) {
+		diag_buffer_head_t diag_head;
+		uint32_t temp_buf_size = 0;
 		pr_debug("diag: process woken up\n");
+		memset(&diag_head, 0, sizeof(diag_head));
 		/*Copy the type of data being passed*/
 		data_type = driver->data_ready[index] & USER_SPACE_LOG_TYPE;
 		COPY_USER_SPACE_OR_EXIT(buf, data_type, 4);
+		diag_head.datatype = data_type;
+		diag_head.num_data = 1;
 		/* place holder for number of data field */
-		ret += 4;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+		/* copy modem data */
+		if (driver->in_busy_1 == 1) {
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_1,
+				driver->write_ptr_1->length);
+			driver->in_busy_1 = 0;
+			num_data++;
+		}
+		while (driver->buf_used > 0) {
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_3[driver->head],
+				driver->write_ptr_3[driver->head]->length);
+			driver->head++;
+			if (driver->head >= DIAG_MODEM_BUFFER_NUM) {
+				driver->head = 0;
+			}
+			driver->buf_used--;
+			num_data++;
+		}
+
+		// APP Buffers
 
 		for (i = 0; i < driver->poolsize_write_struct; i++) {
 			if (driver->buf_tbl[i].length > 0) {
-#ifdef DIAG_DEBUG
-				pr_debug("diag: WRITING the buf address "
-				       "and length is %x , %d\n", (unsigned int)
-					(driver->buf_tbl[i].buf),
+				COPY_USER_SPACE_OR_EXIT1(
+					driver->buf_tbl[i].buf,
 					driver->buf_tbl[i].length);
-#endif
+					
 				num_data++;
-				/* Copy the length of data being passed */
-				if (copy_to_user(buf+ret, (void *)&(driver->
-						buf_tbl[i].length), 4)) {
-						num_data--;
-						goto drop;
-				}
-				ret += 4;
 
-				/* Copy the actual data being passed */
-				if (copy_to_user(buf+ret, (void *)driver->
-				buf_tbl[i].buf, driver->buf_tbl[i].length)) {
-					ret -= 4;
-					num_data--;
-					goto drop;
-				}
-				ret += driver->buf_tbl[i].length;
-drop:
-#ifdef DIAG_DEBUG
-				pr_debug("diag: DEQUEUE buf address and"
-				       " length is %x,%d\n", (unsigned int)
-				       (driver->buf_tbl[i].buf), driver->
-				       buf_tbl[i].length);
-#endif
 				diagmem_free(driver, (unsigned char *)
 				(driver->buf_tbl[i].buf), POOL_TYPE_HDLC);
 				driver->buf_tbl[i].length = 0;
@@ -655,87 +694,49 @@ drop:
 			}
 		}
 
-		/* copy modem data */
-		if (driver->in_busy_1 == 1) {
-			num_data++;
-			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-					 (driver->write_ptr_1->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-					*(driver->buf_in_1),
-					 driver->write_ptr_1->length);
-			driver->in_busy_1 = 0;
-		}
-		if (driver->in_busy_2 == 1) {
-			num_data++;
-			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-					 (driver->write_ptr_2->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-					 *(driver->buf_in_2),
-					 driver->write_ptr_2->length);
-			driver->in_busy_2 = 0;
-		}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 		/* copy lpass data */
 		if (driver->in_busy_qdsp_1 == 1) {
-			num_data++;
 			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-				 (driver->write_ptr_qdsp_1->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret, *(driver->
-							buf_in_qdsp_1),
-					 driver->write_ptr_qdsp_1->length);
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_qdsp_1,
+				driver->write_ptr_qdsp_1->length);
 			driver->in_busy_qdsp_1 = 0;
+			num_data++;
 		}
 		if (driver->in_busy_qdsp_2 == 1) {
-			num_data++;
 			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-				 (driver->write_ptr_qdsp_2->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret, *(driver->
-				buf_in_qdsp_2), driver->
-					write_ptr_qdsp_2->length);
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_qdsp_2,
+				driver->write_ptr_qdsp_2->length);
 			driver->in_busy_qdsp_2 = 0;
+			num_data++;
 		}
+		
 		/* copy wncss data */
 		if (driver->in_busy_wcnss_1 == 1) {
-			num_data++;
-			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-				 (driver->write_ptr_wcnss_1->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret, *(driver->
-							buf_in_wcnss_1),
-					 driver->write_ptr_wcnss_1->length);
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_wcnss_1,
+				driver->write_ptr_wcnss_1->length);
 			driver->in_busy_wcnss_1 = 0;
+			num_data++;
 		}
 		if (driver->in_busy_wcnss_2 == 1) {
-			num_data++;
-			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-				 (driver->write_ptr_wcnss_2->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret, *(driver->
-							buf_in_wcnss_2),
+			COPY_USER_SPACE_OR_EXIT1(
+					 driver->buf_in_wcnss_2,
 					 driver->write_ptr_wcnss_2->length);
 			driver->in_busy_wcnss_2 = 0;
+			num_data++;
 		}
 #ifdef CONFIG_DIAG_SDIO_PIPE
 		/* copy 9K data over SDIO */
 		if (driver->in_busy_sdio == 1) {
-			num_data++;
 			/*Copy the length of data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-				 (driver->write_ptr_mdm->length), 4);
-			/*Copy the actual data being passed*/
-			COPY_USER_SPACE_OR_EXIT(buf+ret,
-					*(driver->buf_in_sdio),
-					 driver->write_ptr_mdm->length);
+			COPY_USER_SPACE_OR_EXIT1(
+				driver->buf_in_sdio,
+				driver->write_ptr_mdm->length);
 			driver->in_busy_sdio = 0;
+			num_data++;
 		}
 #endif
 #ifdef CONFIG_DIAG_BRIDGE_CODE
@@ -755,9 +756,16 @@ drop:
 			diagfwd_write_complete_hsic();
 		}
 #endif
+
+buffer_full_exit:
 		/* copy number of data fields */
-		COPY_USER_SPACE_OR_EXIT(buf+4, num_data, 4);
-		ret -= 4;
+		diag_head.data_size = temp_buf_size;
+		if (!copy_to_user(buf, &diag_head, sizeof(diag_buffer_head_t))) {
+			ret = sizeof(diag_buffer_head_t) + diag_head.data_size;
+		} else {
+			pr_err("%s: copy head error\n", __func__);
+		}
+
 		driver->data_ready[index] ^= USER_SPACE_LOG_TYPE;
 		if (driver->ch)
 			queue_work(driver->diag_wq,

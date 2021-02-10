@@ -355,7 +355,7 @@ u32 __branch_disable_reg(const struct branch *b, const char *name)
 {
 	u32 reg_val;
 
-	reg_val = readl_relaxed(b->ctl_reg);
+	reg_val = b->ctl_reg ? readl_relaxed(b->ctl_reg) : 0;
 	if (b->en_mask) {
 		reg_val &= ~(b->en_mask);
 		writel_relaxed(reg_val, b->ctl_reg);
@@ -564,7 +564,7 @@ enum handoff branch_handoff(struct branch *b, struct clk *c)
 	if (!branch_in_hwcg_mode(b)) {
 		b->hwcg_mask = 0;
 		c->flags &= ~CLKFLAG_HWCG;
-		if (readl_relaxed(b->ctl_reg) & b->en_mask)
+		if (b->ctl_reg && readl_relaxed(b->ctl_reg) & b->en_mask)
 			return HANDOFF_ENABLED_CLK;
 	} else {
 		c->flags |= CLKFLAG_HWCG;
@@ -805,7 +805,6 @@ struct clk_ops clk_ops_branch = {
 	.enable_hwcg = branch_clk_enable_hwcg,
 	.disable_hwcg = branch_clk_disable_hwcg,
 	.in_hwcg_mode = branch_clk_in_hwcg_mode,
-	.auto_off = branch_clk_disable,
 	.is_enabled = branch_clk_is_enabled,
 	.reset = branch_clk_reset,
 	.get_parent = branch_clk_get_parent,
@@ -828,7 +827,6 @@ struct clk_ops clk_ops_rcg = {
 	.enable_hwcg = rcg_clk_enable_hwcg,
 	.disable_hwcg = rcg_clk_disable_hwcg,
 	.in_hwcg_mode = rcg_clk_in_hwcg_mode,
-	.auto_off = rcg_clk_disable,
 	.handoff = rcg_clk_handoff,
 	.set_rate = rcg_clk_set_rate,
 	.list_rate = rcg_clk_list_rate,
@@ -941,7 +939,6 @@ struct clk_ops clk_ops_cdiv = {
 	.in_hwcg_mode = cdiv_clk_in_hwcg_mode,
 	.enable_hwcg = cdiv_clk_enable_hwcg,
 	.disable_hwcg = cdiv_clk_disable_hwcg,
-	.auto_off = cdiv_clk_disable,
 	.handoff = cdiv_clk_handoff,
 	.set_rate = cdiv_clk_set_rate,
 	.get_rate = cdiv_clk_get_rate,

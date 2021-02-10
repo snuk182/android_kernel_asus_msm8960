@@ -43,6 +43,43 @@
 
 #include "i2c-core.h"
 
+//ASUS BSP Larry Lai for i2c debug +++
+/* Debug levels */
+#define NO_DEBUG       0
+#define DEBUG_ERROR       0
+#define DEBUG_POWER     1
+#define DEBUG_INFO  2
+#define DEBUG_VERBOSE 5
+#define DEBUG_RAW      8
+#define DEBUG_TRACE   10
+
+static int debug = NO_DEBUG;
+
+module_param(debug, int, 0644);
+
+MODULE_PARM_DESC(debug, "Activate i2c debug output");
+
+
+#define i2c_debug(level, nr, fmt, ...) \
+	if (debug >= (level)) { \
+		switch (nr) { \
+			case 3: \
+				printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__); \
+				break; \
+			case 4: \
+				printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__); \
+				break; \
+			case 10: \
+				printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__); \
+				break; \
+			case 12: \
+				printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__); \
+				break; \
+			default: \
+				break; \
+			} \
+	}
+//ASUS BSP Larry Lai for i2c debug ---
 
 /* core_lock protects i2c_adapter_idr, and guarantees
    that device detection, deletion of detected devices, and attach_adapter
@@ -636,6 +673,49 @@ static void i2c_adapter_dev_release(struct device *dev)
 	complete(&adap->dev_released);
 }
 
+
+// ASUS_BSP +++
+//SinaChou @20111201:Add test entry point for stress test
+#ifdef CONFIG_I2C_STRESS_TEST
+
+#include <linux/ctype.h>
+#include <linux/i2c-streestest-external-command.h>
+
+static ssize_t
+show_test(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	//struct i2c_adapter *adap = to_i2c_adapter(dev);
+	return i2c_stresstest_print_status(buf);
+}
+static ssize_t
+store_test(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	//ssize_t ret = -EINVAL, size;
+	/*
+	int contrast;
+	char *endp;
+
+	contrast = simple_strtol(buf, &endp, 0);
+	size = endp - buf;
+
+	if (*endp && isspace(*endp))
+		size++;
+
+	if (size != count)
+		return ret;
+
+	printk("ID = %d\n",contrast);
+
+	ret = count;
+	*/
+		
+	return i2c_stresstest_command_parser(buf, count);
+
+}
+#endif
+// ASUS_BSP +++
+
 /*
  * Let users instantiate I2C devices through sysfs. This can be used when
  * platform initialization code doesn't contain the proper data for
@@ -750,10 +830,21 @@ i2c_sysfs_delete_device(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR(new_device, S_IWUSR, NULL, i2c_sysfs_new_device);
 static DEVICE_ATTR(delete_device, S_IWUSR, NULL, i2c_sysfs_delete_device);
 
+// ASUS_BSP +++
+#ifdef CONFIG_I2C_STRESS_TEST
+//static DEVICE_ATTR(test, 664, show_test, store_test);
+static DEVICE_ATTR(test, 0755 , show_test, store_test);
+#endif
+// ASUS_BSP ---
 static struct attribute *i2c_adapter_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_new_device.attr,
 	&dev_attr_delete_device.attr,
+// ASUS_BSP +++
+#ifdef CONFIG_I2C_STRESS_TEST
+	&dev_attr_test.attr,
+#endif 
+// ASUS_BSP ---
 	NULL
 };
 
@@ -1337,15 +1428,26 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 				(msgs[ret].flags & I2C_M_RECV_LEN) ? "+" : "");
 		}
 #endif
+       	i2c_debug(DEBUG_TRACE, adap->nr, "[bus=%d] I2C transfer %c, addr=0x%02x, reg=0x%02x, len=%d, mutex owner addr=0x%02x\n", 
+				adap->nr, (msgs[0].flags & I2C_M_RD) ? 'R' : 'W', msgs[0].addr, (msgs[0].buf) ? msgs[0].buf[0] : 0, msgs[0].len , adap->mutex_i2c_addr);
 
 		if (in_atomic() || irqs_disabled()) {
 			ret = i2c_trylock_adapter(adap);
 			if (!ret)
+			{
+				i2c_debug(DEBUG_ERROR , adap->nr,"[bus=%d] I2C mutex error %c, addr=0x%02x, reg=0x%02x, len=%d, mutex owner addr=0x%02x\n", 
+				adap->nr, (msgs[0].flags & I2C_M_RD) ? 'R' : 'W', msgs[0].addr, (msgs[0].buf) ? msgs[0].buf[0] : 0, msgs[0].len , adap->mutex_i2c_addr);
+
+				i2c_debug(DEBUG_INFO , adap->nr, "[bus=%d] mutex error  in_atomic()=%d, irqs_disabled()=%d, mutex_trylock()=%d\n", adap->nr, in_atomic(), irqs_disabled(), ret );
+
+
 				/* I2C activity is ongoing. */
 				return -EAGAIN;
+			}
 		} else {
 			i2c_lock_adapter(adap);
 		}
+		adap->mutex_i2c_addr = (unsigned int) msgs[0].addr;
 
 		/* Retry automatically on arbitration loss */
 		orig_jiffies = jiffies;
@@ -1357,7 +1459,15 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 				break;
 		}
 		i2c_unlock_adapter(adap);
-
+		adap->mutex_i2c_addr = 0;  // clear the mutex debug i2c addr;
+		if (ret < 0)
+		{
+			i2c_debug(DEBUG_ERROR , adap->nr, "[bus=%d] [i2c Error] i2c_transfer (%c) addr=0x%02x, reg=0x%02x, ret=%d\n", adap->nr, (msgs[0].flags & I2C_M_RD) ? 'R' : 'W', msgs[0].addr, (msgs[0].buf) ? msgs[0].buf[0] : 0, ret);
+		}
+		else
+		{
+			i2c_debug(DEBUG_TRACE , adap->nr, "[bus=%d] --i2c_transfer (%c) I2C mutex_unlock addr=0x%02x, ret=%d\n", adap->nr, (msgs[0].flags & I2C_M_RD) ? 'R' : 'W', msgs[0].addr, ret);
+		}
 		return ret;
 	} else {
 		dev_dbg(&adap->dev, "I2C level transfers not supported\n");

@@ -109,8 +109,11 @@
 #define HDMI_VFRMT_1440x480i240_4_3	HDMI_VFRMT_720x480i240_4_3
 #define HDMI_VFRMT_720x480i240_16_9	58
 #define HDMI_VFRMT_1440x480i240_16_9	HDMI_VFRMT_720x480i240_16_9
-#define HDMI_VFRMT_MAX			59
+#define HDMI_VFRMT_1280x800p60_16_10 59 //Mickey
+#define HDMI_VFRMT_MAX          60  //59    //Mickey
 #define HDMI_VFRMT_FORCE_32BIT		0x7FFFFFFF
+
+extern int ext_resolution;
 
 struct hdmi_disp_mode_timing_type {
 	uint32	video_format;
@@ -184,6 +187,11 @@ struct hdmi_disp_mode_timing_type {
 	{HDMI_VFRMT_1920x1080p30_16_9,   1920,  88,   44,  148,  FALSE,	\
 	 1080, 4, 5, 36, FALSE, 74250, 30000, FALSE, TRUE}
 
+//Mickey+++,??
+#define HDMI_SETTINGS_1280x800p60_16_10                 \
+    {HDMI_VFRMT_1280x800p60_16_10,   1280,  48,   32,  80,  FALSE, \
+     800, 3, 6, 14, FALSE, 74250, 60000, FALSE, TRUE}//74250?? or 71107
+//Mickey---
 /* A lookup table for all the supported display modes by the HDMI
  * hardware and driver.  Use HDMI_SETUP_LUT in the module init to
  * setup the LUT with the supported modes. */

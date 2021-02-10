@@ -301,8 +301,11 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 
 	spin_lock_irqsave(&mdp_spin_lock, flag);
 #ifdef DSI_CLK_CTRL
+
+	spin_lock_bh(&dsi_clk_lock);
 	if (mipi_dsi_clk_on == 0)
 		mipi_dsi_turn_on_clks();
+	spin_unlock_bh(&dsi_clk_lock);
 #endif
 
 	if (mfd->dma->busy == TRUE) {
@@ -507,6 +510,33 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		}
 	}
 	up(&mfd->dma->mutex);
+}
+
+void mdp_dma_vsync_ctrl(int enable)
+{
+	unsigned long flag;
+	if (vsync_cntrl.vsync_irq_enabled == enable)
+		return;
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	if (!enable)
+		INIT_COMPLETION(vsync_cntrl.vsync_wait);
+	vsync_cntrl.vsync_irq_enabled = enable;
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+
+	if (enable) {
+		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+		MDP_OUTP(MDP_BASE + 0x021c, 0x10); /* read pointer */
+		spin_lock_irqsave(&mdp_spin_lock, flag);
+		outp32(MDP_INTR_CLEAR, MDP_PRIM_RDPTR);
+		mdp_intr_mask |= MDP_PRIM_RDPTR;
+		outp32(MDP_INTR_ENABLE, mdp_intr_mask);
+		mdp_enable_irq(MDP_VSYNC_TERM);
+		spin_unlock_irqrestore(&mdp_spin_lock, flag);
+	} else {
+		wait_for_completion(&vsync_cntrl.vsync_wait);
+		mdp_disable_irq(MDP_VSYNC_TERM);
+	}
 }
 
 void mdp_lcd_update_workqueue_handler(struct work_struct *work)

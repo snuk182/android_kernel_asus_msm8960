@@ -139,6 +139,8 @@ int msm_gpiomux_put(unsigned gpio);
 int msm_gpiomux_write(unsigned gpio, enum msm_gpiomux_setting which,
 	struct gpiomux_setting *setting, struct gpiomux_setting *old_setting);
 
+int msm_gpiomux_write_pm(unsigned gpio, struct gpiomux_setting *setting); //Ledger
+
 /* Architecture-internal function for use by the framework only.
  * This function can assume the following:
  * - the gpio value has passed a bounds-check

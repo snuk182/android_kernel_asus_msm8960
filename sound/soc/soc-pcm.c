@@ -33,6 +33,8 @@
 #include <sound/initval.h>
 
 #define MAX_BE_USERS	8	/* adjust if too low for everday use */
+int g_playing_hdmi = 0;
+int g_playing_LPA = 0;
 
 static int soc_dpcm_be_dai_hw_free(struct snd_soc_pcm_runtime *fe, int stream);
 
@@ -405,6 +407,7 @@ out:
  * This is to ensure there are no pops or clicks in between any music tracks
  * due to DAPM power cycling.
  */
+extern int g_flag_csvoice_fe_connected;
 static void close_delayed_work(struct work_struct *work)
 {
 	struct snd_soc_pcm_runtime *rtd =
@@ -412,7 +415,15 @@ static void close_delayed_work(struct work_struct *work)
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
 	mutex_lock_nested(&rtd->pcm_mutex, rtd->pcm_subclass);
-
+   
+     if(g_flag_csvoice_fe_connected)
+    {
+        //printk("g_flag_csvoice_fe_connected ==1, schedule next work\r\n");
+        schedule_delayed_work(&rtd->delayed_work, msecs_to_jiffies(rtd->pmdown_time));
+        mutex_unlock(&rtd->pcm_mutex);
+        return;
+    }
+       
 	pr_debug("pop wq checking: %s status: %s waiting: %s\n",
 		 codec_dai->driver->playback.stream_name,
 		 codec_dai->playback_active ? "active" : "inactive",
@@ -469,7 +480,10 @@ static int soc_pcm_close(struct snd_pcm_substream *substream)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		snd_soc_dai_digital_mute(codec_dai, 1);
 
-	if (cpu_dai->driver->ops->shutdown) {
+	if (cpu_dai->driver->ops->shutdown)
+		cpu_dai->driver->ops->shutdown(substream, cpu_dai);
+
+	if (codec_dai->driver->ops->shutdown) {
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 			codec_dai->driver->ops->shutdown(substream, codec_dai);
 		} else {
@@ -478,9 +492,6 @@ static int soc_pcm_close(struct snd_pcm_substream *substream)
 								codec_dai);
 		}
 	}
-
-	if (codec_dai->driver->ops->shutdown)
-		codec_dai->driver->ops->shutdown(substream, codec_dai);
 
 	if (rtd->dai_link->ops && rtd->dai_link->ops->shutdown)
 		rtd->dai_link->ops->shutdown(substream);
@@ -860,7 +871,8 @@ static inline int be_connect(struct snd_soc_pcm_runtime *fe,
 	dev_dbg(fe->dev, "  connected new DSP %s path %s %s %s\n",
 			stream ? "capture" : "playback",  fe->dai_link->name,
 			stream ? "<-" : "->", be->dai_link->name);
-
+      if (strstr(fe->dai_link->name, "MSM8960 LPA"))
+       	g_playing_LPA = 1;
 #ifdef CONFIG_DEBUG_FS
 	dpcm_params->debugfs_state = debugfs_create_u32(be->dai_link->name, 0644,
 			fe->debugfs_dpcm_root, &dpcm_params->state);
@@ -910,7 +922,8 @@ static inline void be_disconnect(struct snd_soc_pcm_runtime *fe, int stream)
 			dev_dbg(fe->dev, "  freed DSP %s path %s %s %s\n",
 					stream ? "capture" : "playback", fe->dai_link->name,
 					stream ? "<-" : "->", dpcm_params->be->dai_link->name);
-
+    		if (strstr(fe->dai_link->name, "MSM8960 LPA"))
+        		g_playing_LPA = 0;
 			/* BEs still alive need new FE */
 			be_reparent(fe, dpcm_params->be, stream);
 
@@ -1496,10 +1509,11 @@ int soc_dpcm_be_dai_trigger(struct snd_soc_pcm_runtime *fe, int stream, int cmd)
 	struct snd_soc_dpcm_params *dpcm_params;
 	int ret = 0;
 
-	if ((cmd == SNDRV_PCM_TRIGGER_PAUSE_RELEASE) ||
-				(cmd == SNDRV_PCM_TRIGGER_PAUSE_PUSH))
-		return ret;
-
+	//QC:[PATCH] ASoC: pcm: allow backend hardware to be freed in pause state
+	//if ((cmd == SNDRV_PCM_TRIGGER_PAUSE_RELEASE) ||
+	//			(cmd == SNDRV_PCM_TRIGGER_PAUSE_PUSH))
+	//	return ret;
+	
 	list_for_each_entry(dpcm_params, &fe->dpcm[stream].be_clients, list_be) {
 
 		struct snd_soc_pcm_runtime *be = dpcm_params->be;
@@ -1767,6 +1781,7 @@ static int soc_dpcm_be_dai_hw_free(struct snd_soc_pcm_runtime *fe, int stream)
 		if ((be->dpcm[stream].state != SND_SOC_DPCM_STATE_HW_PARAMS) &&
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_PREPARE) &&
 			(be->dpcm[stream].state != SND_SOC_DPCM_STATE_HW_FREE) &&
+			(be->dpcm[stream].state != SND_SOC_DPCM_STATE_PAUSED) &&//QC
 		    (be->dpcm[stream].state != SND_SOC_DPCM_STATE_STOP))
 			continue;
 
@@ -2045,6 +2060,8 @@ int soc_dpcm_runtime_update(struct snd_soc_dapm_widget *widget)
 			fe_clear_pending(fe, SNDRV_PCM_STREAM_PLAYBACK);
 			be_disconnect(fe, SNDRV_PCM_STREAM_PLAYBACK);
 		}
+
+		fe_path_put(&list);
 
 capture:
 		/* skip if FE doesn't have capture capability */

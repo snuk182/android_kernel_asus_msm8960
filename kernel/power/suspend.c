@@ -28,6 +28,8 @@
 #include <trace/events/power.h>
 
 #include "power.h"
+//add timer to debug unattended mode
+#include <linux/wakelock.h>
 
 const char *const pm_states[PM_SUSPEND_MAX] = {
 #ifdef CONFIG_EARLYSUSPEND
@@ -201,6 +203,19 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
  * suspend_devices_and_enter - Suspend devices and enter system sleep state.
  * @state: System sleep state to enter.
  */
+
+//add timer to debug unattended mode 
+	void unattended_timer_expired(unsigned long data);
+	DEFINE_TIMER(unattended_timer, unattended_timer_expired, 0, 0);
+
+	void unattended_timer_expired(unsigned long data)
+	{
+	    printk("[PM]unattended timer expired\n");
+		ASUSEvtlog("[PM]unattended timer expired\n");
+	
+	    print_active_locks(WAKE_LOCK_SUSPEND);
+	    mod_timer(&unattended_timer, jiffies + msecs_to_jiffies(PM_UNATTENDED_TIMEOUT));
+	}
 int suspend_devices_and_enter(suspend_state_t state)
 {
 	int error;
@@ -215,6 +230,10 @@ int suspend_devices_and_enter(suspend_state_t state)
 		if (error)
 			goto Close;
 	}
+
+       //delete unattended timer 
+	printk("[PM]unattended_timer: del_timer(suspend)\n");
+	del_timer(&unattended_timer);
 	suspend_console();
 	suspend_test_start();
 	error = dpm_suspend_start(PMSG_SUSPEND);
@@ -236,6 +255,10 @@ int suspend_devices_and_enter(suspend_state_t state)
 	dpm_resume_end(PMSG_RESUME);
 	suspend_test_finish("resume devices");
 	resume_console();
+//add timer to debug unattended mode wakelock
+	printk("[PM]unattended_timer: mod_timer(resume)\n");
+	mod_timer(&unattended_timer, jiffies + msecs_to_jiffies(PM_UNATTENDED_TIMEOUT));
+
  Close:
 	if (suspend_ops->end)
 		suspend_ops->end();

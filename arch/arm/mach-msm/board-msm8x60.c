@@ -2649,7 +2649,12 @@ unsigned char hdmi_is_primary;
 #define USER_SMI_SIZE         (MSM_SMI_SIZE - KERNEL_SMI_SIZE)
 #define MSM_PMEM_SMIPOOL_SIZE USER_SMI_SIZE
 
+#ifdef CONFIG_MSM_CP
 #define MSM_ION_HOLE_SIZE	SZ_128K /* (128KB) */
+#else
+#define MSM_ION_HOLE_SIZE	0
+#endif
+
 #define MSM_MM_FW_SIZE		(0x200000 - MSM_ION_HOLE_SIZE) /*(2MB-128KB)*/
 #define MSM_ION_MM_SIZE		0x3800000  /* (56MB) */
 #define MSM_ION_MFC_SIZE	SZ_8K
@@ -2658,6 +2663,14 @@ unsigned char hdmi_is_primary;
 #define MSM_ION_HOLE_BASE	(MSM_MM_FW_BASE + MSM_MM_FW_SIZE)
 #define MSM_ION_MM_BASE		(MSM_ION_HOLE_BASE + MSM_ION_HOLE_SIZE)
 #define MSM_ION_MFC_BASE	(MSM_ION_MM_BASE + MSM_ION_MM_SIZE)
+
+#ifdef CONFIG_MSM_CP
+#define SECURE_BASE	(MSM_ION_HOLE_BASE)
+#define SECURE_SIZE	(MSM_ION_MM_SIZE + MSM_ION_HOLE_SIZE)
+#else
+#define SECURE_BASE	(MSM_MM_FW_BASE)
+#define SECURE_SIZE	(MSM_ION_MM_SIZE + MSM_MM_FW_SIZE)
+#endif
 
 #define MSM_ION_SF_SIZE		0x4000000 /* 64MB */
 #define MSM_ION_CAMERA_SIZE     MSM_PMEM_ADSP_SIZE
@@ -5133,6 +5146,81 @@ static struct platform_device *asoc_devices[] __initdata = {
 	&asoc_msm_dai1,
 };
 
+/* qseecom bus scaling */
+static struct msm_bus_vectors qseecom_clks_init_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_SPS,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ib = 0,
+		.ab = 0,
+	},
+	{
+		.src = MSM_BUS_MASTER_SPDM,
+		.dst = MSM_BUS_SLAVE_SPDM,
+		.ib = 0,
+		.ab = 0,
+	},
+};
+
+static struct msm_bus_vectors qseecom_enable_dfab_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_SPS,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ib = (492 * 8) * 1000000UL,
+		.ab = (492 * 8) *  100000UL,
+	},
+	{
+		.src = MSM_BUS_MASTER_SPDM,
+		.dst = MSM_BUS_SLAVE_SPDM,
+		.ib = 0,
+		.ab = 0,
+	},
+};
+
+static struct msm_bus_vectors qseecom_enable_sfpb_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_SPS,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ib = 0,
+		.ab = 0,
+	},
+	{
+		.src = MSM_BUS_MASTER_SPDM,
+		.dst = MSM_BUS_SLAVE_SPDM,
+		.ib = (64 * 8) * 1000000UL,
+		.ab = (64 * 8) *  100000UL,
+	},
+};
+
+static struct msm_bus_paths qseecom_hw_bus_scale_usecases[] = {
+	{
+		ARRAY_SIZE(qseecom_clks_init_vectors),
+		qseecom_clks_init_vectors,
+	},
+	{
+		ARRAY_SIZE(qseecom_enable_dfab_vectors),
+		qseecom_enable_sfpb_vectors,
+	},
+	{
+		ARRAY_SIZE(qseecom_enable_sfpb_vectors),
+		qseecom_enable_sfpb_vectors,
+	},
+};
+
+static struct msm_bus_scale_pdata qseecom_bus_pdata = {
+	.usecase = qseecom_hw_bus_scale_usecases,
+	.num_usecases = ARRAY_SIZE(qseecom_hw_bus_scale_usecases),
+	.name = "qsee",
+};
+
+static struct platform_device qseecom_device = {
+	.name		= "qseecom",
+	.id		= -1,
+	.dev		= {
+		.platform_data = &qseecom_bus_pdata,
+	},
+};
+
 static struct platform_device *surf_devices[] __initdata = {
 	&msm8x60_device_acpuclk,
 	&msm_device_smd,
@@ -5141,6 +5229,8 @@ static struct platform_device *surf_devices[] __initdata = {
 	&msm_pil_modem,
 	&msm_pil_tzapps,
 	&msm_pil_dsps,
+	&msm_pil_vidc,
+	&qseecom_device,
 #ifdef CONFIG_I2C_QUP
 	&msm_gsbi3_qup_i2c_device,
 	&msm_gsbi4_qup_i2c_device,
@@ -5291,6 +5381,7 @@ static struct platform_device *surf_devices[] __initdata = {
 	&msm8660_device_watchdog,
 	&msm_device_tz_log,
 	&msm_rtb_device,
+	&msm8660_iommu_domain_device,
 };
 
 #ifdef CONFIG_ION_MSM
@@ -5301,8 +5392,8 @@ static struct ion_cp_heap_pdata cp_mm_ion_pdata = {
 	.request_region = request_smi_region,
 	.release_region = release_smi_region,
 	.setup_region = setup_smi_region,
-	.secure_base = MSM_ION_HOLE_BASE,
-	.secure_size = MSM_ION_HOLE_SIZE + MSM_ION_MM_SIZE,
+	.secure_base = SECURE_BASE,
+	.secure_size = SECURE_SIZE,
 	.iommu_map_all = 1,
 	.iommu_2x_map_domain = VIDEO_DOMAIN,
 };
@@ -5692,7 +5783,6 @@ static int pm8058_gpios_init(void)
 				.inv_int_pol    = 0,
 			},
 		},
-#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
 		{
 			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_SDC3_DET - 1),
 			{
@@ -5703,7 +5793,6 @@ static int pm8058_gpios_init(void)
 				.inv_int_pol    = 0,
 			},
 		},
-#endif
 		{ /* core&surf gpio expander */
 			PM8058_GPIO_PM_TO_SYS(UI_INT1_N),
 			{
@@ -8353,7 +8442,6 @@ static int msm8x60_multi_sdio_init(void)
 }
 
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
-#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
 static unsigned int msm8x60_sdcc_slot_status(struct device *dev)
 {
 	int status;
@@ -8373,7 +8461,6 @@ static unsigned int msm8x60_sdcc_slot_status(struct device *dev)
 	}
 	return (unsigned int) status;
 }
-#endif
 #endif
 #endif
 
@@ -8421,12 +8508,10 @@ static struct mmc_platform_data msm8x60_sdc3_data = {
 	.translate_vdd  = msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
 	.wpswitch  	= msm_sdc3_get_wpswitch,
-#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
 	.status      = msm8x60_sdcc_slot_status,
 	.status_irq  = PM8058_GPIO_IRQ(PM8058_IRQ_BASE,
 				       PMIC_GPIO_SDC3_DET - 1),
 	.irq_flags   = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
-#endif
 	.msmsdcc_fmin	= 400000,
 	.msmsdcc_fmid	= 24000000,
 	.msmsdcc_fmax	= 48000000,
@@ -9686,27 +9771,9 @@ static int atv_dac_power(int on)
 }
 #endif
 
-#ifdef CONFIG_FB_MSM_MIPI_DSI
-int mdp_core_clk_rate_table[] = {
-	85330000,
-	128000000,
-	160000000,
-	200000000,
-};
-#else
-int mdp_core_clk_rate_table[] = {
-	59080000,
-	128000000,
-	128000000,
-	200000000,
-};
-#endif
-
 static struct msm_panel_common_pdata mdp_pdata = {
 	.gpio = MDP_VSYNC_GPIO,
-	.mdp_core_clk_rate = 59080000,
-	.mdp_core_clk_table = mdp_core_clk_rate_table,
-	.num_mdp_clk = ARRAY_SIZE(mdp_core_clk_rate_table),
+	.mdp_max_clk = 200000000,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.mdp_bus_scale_table = &mdp_bus_scale_pdata,
 #endif
@@ -9716,6 +9783,7 @@ static struct msm_panel_common_pdata mdp_pdata = {
 #else
 	.mem_hid = MEMTYPE_EBI1,
 #endif
+	.mdp_iommu_split_domain = 0,
 };
 
 static void __init reserve_mdp_memory(void)
@@ -9798,9 +9866,7 @@ static struct tvenc_platform_data atv_pdata = {
 static void __init msm_fb_add_devices(void)
 {
 #ifdef CONFIG_FB_MSM_LCDC_DSUB
-	mdp_pdata.mdp_core_clk_table = NULL;
-	mdp_pdata.num_mdp_clk = 0;
-	mdp_pdata.mdp_core_clk_rate = 200000000;
+	mdp_pdata.mdp_max_clk = 200000000;
 #endif
 	if (machine_is_msm8x60_rumi3())
 		msm_fb_register_device("mdp", NULL);
@@ -9827,8 +9893,6 @@ static void __init msm_fb_add_devices(void)
  */
 static void set_mdp_clocks_for_wuxga(void)
 {
-	int i;
-
 	mdp_sd_smi_vectors[0].ab = 2000000000;
 	mdp_sd_smi_vectors[0].ib = 2000000000;
 	mdp_sd_smi_vectors[1].ab = 2000000000;
@@ -9854,10 +9918,7 @@ static void set_mdp_clocks_for_wuxga(void)
 	mdp_1080p_vectors[1].ab = 2000000000;
 	mdp_1080p_vectors[1].ib = 2000000000;
 
-	mdp_pdata.mdp_core_clk_rate = 200000000;
-
-	for (i = 0; i < ARRAY_SIZE(mdp_core_clk_rate_table); i++)
-		mdp_core_clk_rate_table[i] = 200000000;
+	mdp_pdata.mdp_max_clk = 200000000;
 }
 
 #if (defined(CONFIG_MARIMBA_CORE)) && \

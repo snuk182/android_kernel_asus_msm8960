@@ -632,6 +632,14 @@ int radio_hci_send_cmd(struct radio_hci_dev *hdev, __u16 opcode, __u32 plen,
 }
 EXPORT_SYMBOL(radio_hci_send_cmd);
 
+
+//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+int FMStatus = 0;
+//---Alpha:"create proc mode file to monitor FM enable/disable status"---
+
+
 static int hci_fm_enable_recv_req(struct radio_hci_dev *hdev,
 	unsigned long param)
 {
@@ -2708,7 +2716,7 @@ static int iris_vidioc_s_ext_ctrls(struct file *file, void *priv,
 		tx_ps.pi = radio->pi;
 		tx_ps.pty = radio->pty;
 		tx_ps.ps_repeatcount = radio->ps_repeatcount;
-		tx_ps.ps_len = bytes_to_copy;
+		tx_ps.ps_num = (bytes_to_copy / PS_STRING_LEN);
 
 		retval = radio_hci_request(radio->fm_hdev, hci_trans_ps_req,
 				(unsigned long)&tx_ps, RADIO_HCI_TIMEOUT);
@@ -2727,7 +2735,7 @@ static int iris_vidioc_s_ext_ctrls(struct file *file, void *priv,
 		tx_rt.rt_control =  0x01;
 		tx_rt.pi = radio->pi;
 		tx_rt.pty = radio->pty;
-		tx_rt.ps_len = bytes_to_copy;
+		tx_rt.rt_len = bytes_to_copy;
 
 		retval = radio_hci_request(radio->fm_hdev, hci_trans_rt_req,
 				(unsigned long)&tx_rt, RADIO_HCI_TIMEOUT);
@@ -2852,6 +2860,13 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 							" %d\n", retval);
 				return retval;
 			}
+			else
+				printk("Enable FM OK\n");
+
+			//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+			FMStatus = 1;
+			//---Alpha:"create proc mode file to monitor FM enable/disable status"---
+
 			radio->mode = FM_RECV;
 			radio->mute_mode.soft_mute = CTRL_ON;
 			retval = hci_set_fm_mute_mode(
@@ -2884,6 +2899,21 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 						radio->fm_hdev);
 			if (retval < 0)
 				FMDERR("Failed to get the Recv Config\n");
+
+			//+++ASUS:When enable FM, set SINR to a low value, then more FM stations can be found+++			
+			retval = hci_cmd(HCI_FM_GET_DET_CH_TH_CMD, radio->fm_hdev);
+			if (retval < 0) {
+				FMDERR("Failed to get chnl det thresholds  %d", retval);
+				return retval;
+			}
+			radio->ch_det_threshold.sinr = 1;//This value is set according to VD's test result
+			retval = hci_set_ch_det_thresholds_req(&radio->ch_det_threshold, radio->fm_hdev);
+			if (retval < 0) {
+				FMDERR("Failed to set SINR threshold %d", retval);
+				return retval;
+			}
+			//---ASUS:When enable FM, set SINR to a low value, then more FM stations can be found---
+
 			break;
 		case FM_TRANS:
 			retval = hci_cmd(HCI_FM_ENABLE_TRANS_CMD,
@@ -2908,6 +2938,13 @@ static int iris_vidioc_s_ctrl(struct file *file, void *priv,
 					FMDERR("Err on disable recv FM"
 						   " %d\n", retval);
 					return retval;
+				}
+				else
+				{
+					printk("Disable FM OK\n");
+					//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+					FMStatus = 0;
+					//---Alpha:"create proc mode file to monitor FM enable/disable status"---
 				}
 				radio->mode = FM_OFF;
 				break;
@@ -3491,6 +3528,9 @@ static int iris_vidioc_s_frequency(struct file *file, void *priv,
 
 	if (retval < 0)
 		FMDERR(" set frequency failed with %d\n", retval);
+	else
+		printk("Set FM freq %d OK\n", freq->frequency);
+
 	return retval;
 }
 
@@ -3584,6 +3624,50 @@ static struct video_device *video_get_dev(void)
 	return priv_videodev;
 }
 
+//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+#define FM_DEBUG_PROC_FILE  "driver/fmradio"
+static struct proc_dir_entry *fm_debug_proc_file;
+
+static int fm_debug_proc_read(struct seq_file *s, void *unused)
+{
+	if(FMStatus==0)
+	{
+		seq_printf(s, "off\n");
+	}
+	else
+	{
+		seq_printf(s,"on\n");
+	}
+	return 0;
+}
+
+static int fm_proc_mode_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, fm_debug_proc_read, PDE(inode)->data);
+}
+
+static struct file_operations fm_debug_proc_ops = {
+	.open = fm_proc_mode_open,
+	.read = seq_read,
+};
+
+static void create_fm_debug_proc_file(void)
+{
+    //printk("[FM] create_fm_debug_proc_file\n");
+    fm_debug_proc_file = create_proc_entry(FM_DEBUG_PROC_FILE, 0644, NULL);
+    if (fm_debug_proc_file) {
+        fm_debug_proc_file->proc_fops = &fm_debug_proc_ops;
+    } 
+}
+
+static void remove_fm_debug_proc_file(void)
+{
+    extern struct proc_dir_entry proc_root;
+    //printk("[FM] remove_fm_debug_proc_file\n");   
+    remove_proc_entry(FM_DEBUG_PROC_FILE, &proc_root);
+}
+//---Alpha:"create proc mode file to monitor FM enable/disable status"---
+
 static int __init iris_probe(struct platform_device *pdev)
 {
 	struct iris_device *radio;
@@ -3614,6 +3698,10 @@ static int __init iris_probe(struct platform_device *pdev)
 
 	memcpy(radio->videodev, &iris_viddev_template,
 	  sizeof(iris_viddev_template));
+
+	//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+	create_fm_debug_proc_file();
+	//---Alpha:"create proc mode file to monitor FM enable/disable status"---
 
 	for (i = 0; i < IRIS_BUF_MAX; i++) {
 		int kfifo_alloc_rc = 0;
@@ -3677,6 +3765,10 @@ static int __devexit iris_remove(struct platform_device *pdev)
 	struct iris_device *radio = platform_get_drvdata(pdev);
 
 	video_unregister_device(radio->videodev);
+
+	//+++Alpha:"create proc mode file to monitor FM enable/disable status"+++
+	remove_fm_debug_proc_file();
+	//---Alpha:"create proc mode file to monitor FM enable/disable status"---
 
 	for (i = 0; i < IRIS_BUF_MAX; i++)
 		kfifo_free(&radio->data_buf[i]);

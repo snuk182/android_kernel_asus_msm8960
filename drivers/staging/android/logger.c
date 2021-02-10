@@ -28,7 +28,10 @@
 #include "logger.h"
 
 #include <asm/ioctls.h>
-
+//thomas_chu +++
+#include <linux/asus_global.h>
+extern struct _asus_global asus_global;
+//thomas_chu ---
 /*
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
  *
@@ -784,6 +787,16 @@ static int __init logger_init(void)
 		goto out;
 
 out:
+//thomas_chu +++
+	asus_global.log_main_addr = (char*)(&(log_main));
+	asus_global.sizeof_log_main=sizeof(log_main);
+	asus_global.log_system_addr = (char*)(&log_system);
+	asus_global.sizeof_log_system=sizeof(log_system);
+	asus_global.log_events_addr = (char*)(&log_events);
+	asus_global.sizeof_log_events=sizeof(log_events);
+	asus_global.log_radio_addr = (char*)(&log_radio);
+	asus_global.sizeof_log_radio=sizeof(log_radio);
+//thomas_chu ---
 	return ret;
 }
 device_initcall(logger_init);

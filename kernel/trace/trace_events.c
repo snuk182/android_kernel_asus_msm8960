@@ -177,6 +177,8 @@ int ftrace_event_reg(struct ftrace_event_call *call,
 	case TRACE_REG_PERF_DEL:
 		return 0;
 #endif
+	default:
+		return 0;
 	}
 	return 0;
 }

@@ -36,9 +36,10 @@
 #include <asm/system_misc.h>
 
 #include "signal.h"
-
+#include <linux/stacktrace.h>
 static const char *handler[]= { "prefetch abort", "data abort", "address exception", "interrupt" };
-
+static int asus_save_stack = 0;
+static struct stack_trace *asus_strace = NULL;
 void *vectors_page;
 
 #ifdef CONFIG_DEBUG_USER
@@ -57,6 +58,12 @@ static void dump_mem(const char *, const char *, unsigned long, unsigned long);
 void dump_backtrace_entry(unsigned long where, unsigned long from, unsigned long frame)
 {
 #ifdef CONFIG_KALLSYMS
+	char sym1[KSYM_SYMBOL_LEN], sym2[KSYM_SYMBOL_LEN];
+	sprint_symbol(sym1, where);
+	sprint_symbol(sym2, from);
+    if(asus_save_stack && (asus_strace->max_entries > asus_strace->nr_entries))
+        asus_strace->entries[asus_strace->nr_entries++] = where;
+    else
 	printk("[<%08lx>] (%pS) from [<%08lx>] (%pS)\n", where, (void *)where, from, (void *)from);
 #else
 	printk("Function entered at [<%08lx>] from [<%08lx>]\n", where, from);
@@ -203,7 +210,13 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		c_backtrace(fp, mode);
 }
 #endif
-
+void save_stack_trace_asus(struct task_struct *tsk, struct stack_trace *trace)
+{
+    asus_save_stack = 1;
+    asus_strace = trace;
+    unwind_backtrace(NULL, tsk);
+    asus_save_stack = 0;
+}
 void dump_stack(void)
 {
 	dump_backtrace(NULL, NULL);
@@ -264,40 +277,105 @@ static int __die(const char *str, int err, struct thread_info *thread, struct pt
 
 static DEFINE_RAW_SPINLOCK(die_lock);
 
+// jack for modem ramdump capture +++++
+#if 0
+static void DIE_work_fn(struct work_struct *work);
+static DECLARE_WORK(DIE_work, DIE_work_fn);
+static int warning_count = 20;
+static char message[128];
+static void DIE_work_fn(struct work_struct *work)
+{
+ 
+    printk_lcd("APPs die:%s, %d !!",message , warning_count);
+    msleep(2000);         
+    if(warning_count--)
+        schedule_work(&DIE_work);
+    
+
+}
+int app_die = 0;
+extern int modem_restarting;
+#endif
+
+// jack for modem ramdump capture -----
+
 /*
  * This function is protected against re-entrancy.
  */
+#include <linux/reboot.h>
+
 void die(const char *str, struct pt_regs *regs, int err)
 {
 	struct thread_info *thread = current_thread_info();
-	int ret;
+	int ret = 0;
+	char message[128]; //jack
 	enum bug_trap_type bug_type = BUG_TRAP_TYPE_NONE;
+	
+    printk("APPS DIE\r\nCall Stack: %s\n", str); //added by jack
+    dump_stack();   
+ #if 0   
+    if(app_die || modem_restarting)
+        return;
+    
+    app_die = 1;
+//jack for modem ramdump capture +++++
+    printk("APPS DIE: %s!!\r\nAPPS DIE:  Saving last shutdown log\r\n", str);
+    save_last_shutdown_log("APPS_DIE");
+    schedule_work(&DIE_work);
+    strncpy(message, str, sizeof(message));
+    printk("APPS DIE: Saving slow down log\r\n");
+    save_all_thread_info();
+    msleep(5000);
+    delta_all_thread_info();
+    save_phone_hang_log();
+    printk("APPS DIE: slow log saved!!\r\n");
+    while(warning_count >= 0)
+        msleep(100);
+    printk("APPS DIE: moving forward!\r\n");
+//jack for modem ramdump capture -----
+#endif
 
 	oops_enter();
 
 	raw_spin_lock_irq(&die_lock);
 	console_verbose();
 	bust_spinlocks(1);
-	if (!user_mode(regs))
-		bug_type = report_bug(regs->ARM_pc, regs);
-	if (bug_type != BUG_TRAP_TYPE_NONE)
-		str = "Oops - BUG";
-	ret = __die(str, err, thread, regs);
+	if (regs != NULL)
+	{
+		if (!user_mode(regs))
+			bug_type = report_bug(regs->ARM_pc, regs);
+		if (bug_type != BUG_TRAP_TYPE_NONE)
+			str = "Oops - BUG";
+		ret = __die(str, err, thread, regs);
+	}
 
 	if (regs && kexec_should_crash(thread->task))
+	{
+		if (regs != NULL)
 		crash_kexec(regs);
-
+	}
 	bust_spinlocks(0);
 	add_taint(TAINT_DIE);
 	raw_spin_unlock_irq(&die_lock);
 	oops_exit();
 
 	if (in_interrupt())
-		panic("Fatal exception in interrupt");
+    {
+        sprintf(message, "DIE:in int %s", str); // jack
+        panic(message);
+        
+    }
 	if (panic_on_oops)
-		panic("Fatal exception");
-	if (ret != NOTIFY_STOP)
-		do_exit(SIGSEGV);
+    {
+        sprintf(message, "DIE :%s", str); // jack
+        panic(message);
+        
+    }
+    if (regs != NULL)
+	{
+		if (ret != NOTIFY_STOP)
+			do_exit(SIGSEGV);
+	}
 }
 
 void arm_notify_die(const char *str, struct pt_regs *regs,

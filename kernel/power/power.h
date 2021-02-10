@@ -272,6 +272,7 @@ extern struct wake_lock main_wake_lock;
 extern suspend_state_t requested_suspend_state;
 extern void suspend_sys_sync_queue(void);
 extern int suspend_sys_sync_wait(void);
+extern bool b_is_power_manager_lock;//[CY]Add for wakelock workaround
 #else
 static inline void suspend_sys_sync_queue(void) {}
 static inline int suspend_sys_sync_wait(void) { return 0; }

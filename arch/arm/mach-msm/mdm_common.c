@@ -48,9 +48,11 @@
 #define MDM_RDUMP_TIMEOUT	120000L
 #define MDM2AP_STATUS_TIMEOUT_MS 60000L
 
-static int mdm_debug_on;
+static unsigned int mdm_debug_mask;
 static struct workqueue_struct *mdm_queue;
 static struct workqueue_struct *mdm_sfr_queue;
+static unsigned int dump_timeout_ms;
+static int vddmin_gpios_sent;
 
 #define EXTERNAL_MODEM "external_modem"
 
@@ -90,6 +92,7 @@ static void mdm_setup_vddmin_gpios(void)
 	if (!vddmin_res)
 		return;
 
+	pr_info("Enabling vddmin logging\n");
 	req.id = vddmin_res->rpm_id;
 	req.value = ((uint32_t)vddmin_res->ap2mdm_vddmin_gpio & 0x0000FFFF)
 							<< 16;
@@ -98,7 +101,7 @@ static void mdm_setup_vddmin_gpios(void)
 
 	msm_rpm_set(MSM_RPM_CTX_SET_0, &req, 1);
 
-	/* Monitor low power gpio from mdm */
+	/* Start monitoring low power gpio from mdm */
 	irq = MSM_GPIO_TO_INT(vddmin_res->mdm2ap_vddmin_gpio);
 	if (irq < 0) {
 		pr_err("%s: could not get LPM POWER IRQ resource.\n",
@@ -312,8 +315,8 @@ static int mdm_panic_prep(struct notifier_block *this,
 	if (i <= 0) {
 		pr_err("%s: MDM2AP_STATUS never went low\n", __func__);
 		/* Reset the modem so that it will go into download mode. */
-		if (mdm_drv && mdm_drv->ops->reset_mdm_cb)
-			mdm_drv->ops->reset_mdm_cb(mdm_drv);
+		if (mdm_drv && mdm_drv->ops->atomic_reset_mdm_cb)
+			mdm_drv->ops->atomic_reset_mdm_cb(mdm_drv);
 	}
 	return NOTIFY_DONE;
 }
@@ -350,6 +353,7 @@ static irqreturn_t mdm_pblrdy_change(int irq, void *dev_id)
 
 static int mdm_subsys_shutdown(const struct subsys_data *crashed_subsys)
 {
+	mdm_drv->mdm_ready = 0;
 	gpio_direction_output(mdm_drv->ap2mdm_errfatal_gpio, 1);
 	if (mdm_drv->pdata->ramdump_delay_ms > 0) {
 		/* Wait for the external modem to complete
@@ -395,7 +399,7 @@ static int mdm_subsys_ramdumps(int want_dumps,
 		mdm_drv->boot_type = CHARM_RAM_DUMPS;
 		complete(&mdm_needs_reload);
 		if (!wait_for_completion_timeout(&mdm_ram_dumps,
-				msecs_to_jiffies(MDM_RDUMP_TIMEOUT))) {
+				msecs_to_jiffies(dump_timeout_ms))) {
 			mdm_drv->mdm_ram_dump_status = -ETIMEDOUT;
 			pr_info("%s: mdm modem ramdumps timed out.\n",
 					__func__);
@@ -416,23 +420,33 @@ static struct subsys_data mdm_subsystem = {
 	.name = EXTERNAL_MODEM,
 };
 
-static int mdm_debug_on_set(void *data, u64 val)
+/* Once the gpios are sent to RPM and debugging
+ * starts, there is no way to stop it without
+ * rebooting the device.
+ */
+static int mdm_debug_mask_set(void *data, u64 val)
 {
-	mdm_debug_on = val;
+	if (!vddmin_gpios_sent &&
+		(val & MDM_DEBUG_MASK_VDDMIN_SETUP)) {
+		mdm_setup_vddmin_gpios();
+		vddmin_gpios_sent = 1;
+	}
+
+	mdm_debug_mask = val;
 	if (mdm_drv->ops->debug_state_changed_cb)
-		mdm_drv->ops->debug_state_changed_cb(mdm_debug_on);
+		mdm_drv->ops->debug_state_changed_cb(mdm_debug_mask);
 	return 0;
 }
 
-static int mdm_debug_on_get(void *data, u64 *val)
+static int mdm_debug_mask_get(void *data, u64 *val)
 {
-	*val = mdm_debug_on;
+	*val = mdm_debug_mask;
 	return 0;
 }
 
-DEFINE_SIMPLE_ATTRIBUTE(mdm_debug_on_fops,
-			mdm_debug_on_get,
-			mdm_debug_on_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(mdm_debug_mask_fops,
+			mdm_debug_mask_get,
+			mdm_debug_mask_set, "%llu\n");
 
 static int mdm_debugfs_init(void)
 {
@@ -442,8 +456,8 @@ static int mdm_debugfs_init(void)
 	if (IS_ERR(dent))
 		return PTR_ERR(dent);
 
-	debugfs_create_file("debug_on", 0644, dent, NULL,
-			&mdm_debug_on_fops);
+	debugfs_create_file("debug_mask", 0644, dent, NULL,
+			&mdm_debug_mask_fops);
 	return 0;
 }
 
@@ -516,6 +530,8 @@ static void mdm_modem_initialize_data(struct platform_device  *pdev,
 
 	mdm_drv->ops      = mdm_ops;
 	mdm_drv->pdata    = pdev->dev.platform_data;
+	dump_timeout_ms = mdm_drv->pdata->ramdump_timeout_ms > 0 ?
+		mdm_drv->pdata->ramdump_timeout_ms : MDM_RDUMP_TIMEOUT;
 }
 
 int mdm_common_create(struct platform_device  *pdev,
@@ -531,7 +547,7 @@ int mdm_common_create(struct platform_device  *pdev,
 
 	mdm_modem_initialize_data(pdev, p_mdm_cb);
 	if (mdm_drv->ops->debug_state_changed_cb)
-		mdm_drv->ops->debug_state_changed_cb(mdm_debug_on);
+		mdm_drv->ops->debug_state_changed_cb(mdm_debug_mask);
 
 	gpio_request(mdm_drv->ap2mdm_status_gpio, "AP2MDM_STATUS");
 	gpio_request(mdm_drv->ap2mdm_errfatal_gpio, "AP2MDM_ERRFATAL");
@@ -656,8 +672,6 @@ pblrdy_err:
 	 */
 	if (mdm_drv->ap2mdm_pmic_pwr_en_gpio > 0)
 		gpio_direction_output(mdm_drv->ap2mdm_pmic_pwr_en_gpio, 1);
-	/* Register VDDmin gpios with RPM */
-	mdm_setup_vddmin_gpios();
 
 	/* Perform early powerup of the external modem in order to
 	 * allow tabla devices to be found.

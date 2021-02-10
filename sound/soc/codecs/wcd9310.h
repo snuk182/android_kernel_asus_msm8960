@@ -12,6 +12,7 @@
 #include <sound/soc.h>
 #include <sound/jack.h>
 #include <linux/mfd/wcd9xxx/wcd9xxx-slimslave.h>
+#include <linux/switch.h>	//Bruno++
 
 #define TABLA_NUM_REGISTERS 0x400
 #define TABLA_MAX_REGISTER (TABLA_NUM_REGISTERS-1)
@@ -58,6 +59,19 @@ struct tabla_reg_mask_val {
 	u8	mask;
 	u8	val;
 };
+
+//Bruno++
+struct gpio_switch_data {
+    struct switch_dev sdev;
+    unsigned gpio;
+    const char *name_on;
+    const char *name_off;
+    const char *state_on;
+    const char *state_off;
+    int irq;
+    struct work_struct work;
+};
+//Bruno++
 
 enum tabla_mbhc_clk_freq {
 	TABLA_MCLK_12P2MHZ = 0,
@@ -157,8 +171,8 @@ struct tabla_mbhc_imped_detect_cfg {
 	u16 _beta[3];
 } __packed;
 
-struct tabla_mbhc_config {
-	struct snd_soc_jack *headset_jack;
+struct tabla_mbhc_config {    
+	//struct snd_soc_jack *headset_jack;        //Bruno++
 	struct snd_soc_jack *button_jack;
 	bool read_fw_bin;
 	/* void* calibration contains:
@@ -191,9 +205,13 @@ struct anc_header {
 extern int tabla_mclk_enable(struct snd_soc_codec *codec, int mclk_enable,
 			     bool dapm);
 
+//Bruno++
+#if 0
 extern void *tabla_mbhc_cal_btn_det_mp(const struct tabla_mbhc_btn_detect_cfg
 				       *btn_det,
 				       const enum tabla_mbhc_btn_det_mem mem);
+#endif
+//Bruno++
 
 #define TABLA_MBHC_CAL_SIZE(buttons, rload) ( \
 	sizeof(enum tabla_micbias_num) + \
@@ -251,3 +269,4 @@ extern void *tabla_mbhc_cal_btn_det_mp(const struct tabla_mbhc_btn_detect_cfg
 				 sizeof(cfg_ptr->_alpha[0]))))
 
 
+void Dump_wcd9310_reg(void);    //Bruno++

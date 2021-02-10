@@ -19,6 +19,8 @@
 #include "devices.h"
 #include "board-8930.h"
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#if 0
 #ifdef CONFIG_MSM_CAMERA
 
 #if (defined(CONFIG_GPIO_SX150X) || defined(CONFIG_GPIO_SX150X_MODULE)) && \
@@ -628,3 +630,15 @@ struct msm_camera_board_info msm8930_camera_board_info = {
 };
 #endif
 #endif
+
+#endif
+
+void __init msm8930_init_cam(void)
+{
+}
+
+struct msm_camera_board_info msm8930_camera_board_info = {
+
+};
+//ASUS_BSP --- Stimber "No need for camera, move to a60k_gpio_pinmux_setting.h"
+

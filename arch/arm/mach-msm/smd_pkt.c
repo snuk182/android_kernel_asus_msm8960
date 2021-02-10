@@ -752,7 +752,11 @@ static uint32_t is_modem_smsm_inited(void)
 	modem_state = smsm_get_state(SMSM_MODEM_STATE);
 	return (modem_state & ready_state) == ready_state;
 }
-
+//ASUS_BSP+++ JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
+#ifdef ASUS_FACTORY_BUILD
+extern void msm_otg_notify_modem_up(void);
+#endif
+//ASUS_BSP--- JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
 int smd_pkt_open(struct inode *inode, struct file *file)
 {
 	int r = 0;
@@ -767,19 +771,18 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 	}
 	D_STATUS("Begin %s on smd_pkt_dev id:%d\n", __func__, smd_pkt_devp->i);
 
-	wake_lock_init(&smd_pkt_devp->pa_wake_lock, WAKE_LOCK_SUSPEND,
-			smd_pkt_dev_name[smd_pkt_devp->i]);
-	INIT_WORK(&smd_pkt_devp->packet_arrival_work, packet_arrival_worker);
-
 	file->private_data = smd_pkt_devp;
 
 	mutex_lock(&smd_pkt_devp->ch_lock);
 	if (smd_pkt_devp->ch == 0) {
+		wake_lock_init(&smd_pkt_devp->pa_wake_lock, WAKE_LOCK_SUSPEND,
+				smd_pkt_dev_name[smd_pkt_devp->i]);
+		INIT_WORK(&smd_pkt_devp->packet_arrival_work,
+				packet_arrival_worker);
 		init_completion(&smd_pkt_devp->ch_allocated);
 		smd_pkt_devp->driver.probe = smd_pkt_dummy_probe;
 		scnprintf(smd_pkt_devp->pdriver_name, PDRIVER_NAME_MAX_SIZE,
-			  "%s.%d", smd_ch_name[smd_pkt_devp->i],
-			  smd_ch_edge[smd_pkt_devp->i]);
+			  "%s", smd_ch_name[smd_pkt_devp->i]);
 		smd_pkt_devp->driver.driver.name = smd_pkt_devp->pdriver_name;
 		smd_pkt_devp->driver.driver.owner = THIS_MODULE;
 		r = platform_driver_register(&smd_pkt_devp->driver);
@@ -882,11 +885,19 @@ release_pd:
 		smd_pkt_devp->driver.probe = NULL;
 	}
 out:
-	mutex_unlock(&smd_pkt_devp->ch_lock);
-
-	if (r < 0)
+	if (!smd_pkt_devp->ch)
 		wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
 
+	mutex_unlock(&smd_pkt_devp->ch_lock);
+
+
+//ASUS_BSP+++ JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
+	#ifdef ASUS_FACTORY_BUILD
+	if(smd_pkt_devp->i == 1){//check second channel, to make sure first channel success or timeout
+		msm_otg_notify_modem_up();
+	}
+	#endif
+//ASUS_BSP--- JimmyLin "[A60K][USB][NA][Other] enable USB after modem up for factory"
 	return r;
 }
 
@@ -916,6 +927,9 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 		smd_pkt_devp->driver.probe = NULL;
 		if (smd_pkt_devp->pil)
 			pil_put(smd_pkt_devp->pil);
+                //ASUS_BSP+++ Chance"240072 move here to match in smd_pkt_open"
+                wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
+                //ASUS_BSP--- Chance"240072 move here to match in smd_pkt_open"
 	}
 	mutex_unlock(&smd_pkt_devp->tx_lock);
 	mutex_unlock(&smd_pkt_devp->rx_lock);
@@ -924,7 +938,6 @@ int smd_pkt_release(struct inode *inode, struct file *file)
 	smd_pkt_devp->has_reset = 0;
 	smd_pkt_devp->do_reset_notification = 0;
 	smd_pkt_devp->wakelock_locked = 0;
-	wake_lock_destroy(&smd_pkt_devp->pa_wake_lock);
 	D_STATUS("Finished %s on smd_pkt_dev id:%d\n",
 		 __func__, smd_pkt_devp->i);
 

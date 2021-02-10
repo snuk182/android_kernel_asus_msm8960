@@ -37,6 +37,9 @@
 #include <linux/of.h>
 #include <linux/of_i2c.h>
 
+#include <linux/microp_api.h>
+#include <linux/microp_pin_def.h>
+
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("0.2");
 MODULE_ALIAS("platform:i2c_qup");
@@ -1082,7 +1085,9 @@ static const struct i2c_algorithm qup_i2c_algo = {
 	.master_xfer	= qup_i2c_xfer,
 	.functionality	= qup_i2c_func,
 };
-
+// ++Louis
+struct device *proximity_dev;
+// --Louis
 static int __devinit
 qup_i2c_probe(struct platform_device *pdev)
 {
@@ -1093,6 +1098,8 @@ qup_i2c_probe(struct platform_device *pdev)
 	int ret = 0;
 	int i;
 	struct msm_i2c_platform_data *pdata;
+
+    proximity_dev = &pdev-> dev;
 
 	gsbi_mem = NULL;
 	dev_dbg(&pdev->dev, "qup_i2c_probe\n");
@@ -1419,11 +1426,60 @@ qup_i2c_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
+#define MSM_8960_GSBI10_QUP_I2C_BUS_ID 10
+int g_turnoffPwrEn=0;
+
+//#ifdef CONFIG_CHARGER_MODE
+#ifdef CONFIG_ASUSEC
+extern int isKeyboardWakeup(void);
+#endif
+extern int scaler_set_to_suspend(int enter_suspend);
+extern bool hdmi_exist_realtime(void);
+extern u8 g_scaler_ver;
+//#endif
 static int qup_i2c_suspend(struct device *device)
 {
 	struct platform_device *pdev = to_platform_device(device);
 	struct qup_i2c_dev *dev = platform_get_drvdata(pdev);
 
+// ASUS_BSP +++ Sina: turn off 3V3 of pad while suspending
+       if(MSM_8960_GSBI10_QUP_I2C_BUS_ID==dev->adapter.nr){
+               if(AX_MicroP_IsP01Connected() && hdmi_exist_realtime()){
+                    if (g_scaler_ver >= 0x21 ) {  // if scaler FW version is elder than 0x21, do NOT suppoer DOCK wakeup function
+                       scaler_set_to_suspend(1);
+#ifdef CONFIG_ASUSEC
+                       if(isKeyboardWakeup()){  //if asusec keyboard need wakeup, dont turn off 3v3
+                              printk("%s: dont turnoff 3V3 for EC\n", __func__);
+                        }
+                       else
+#endif
+                       {
+                               printk("%s: turnoff 3V3 on padstation\n", __func__);
+                               AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_RST, 0);
+                               AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 0); // when in power off state, the reset/power down pins shuold be low..
+                               AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 1);
+                               mdelay(200); //to quarantee timing issue, use cpu-busy waiting is better
+
+/*                               
+                               if(AX_MicroP_HW_isER3() && 0==AX_MicroP_getGPIOOutputPinLevel(OUT_uP_VBUS_EN)){
+                                           AX_MicroP_setGPIOOutputPin(OUT_uP_PWR_EN, 0);
+                                           g_turnoffPwrEn=1;
+                                }
+*/                                
+
+                        }
+                    }
+                    else {
+                        printk("%s: turnoff 3V3 on padstation\n", __func__);
+                        AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_RST, 0);
+                        AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 0); // when in power off state, the reset/power down pins shuold be low..                        
+                        AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 1);
+                        mdelay(100); //to quarantee timing issue, use cpu-busy waiting is better
+                    }
+                }
+       }
+
+// ASUS_BSP --- Sina                
 	/* Grab mutex to ensure ongoing transaction is over */
 	mutex_lock(&dev->mlock);
 	dev->suspended = 1;
@@ -1437,16 +1493,60 @@ static int qup_i2c_suspend(struct device *device)
 	return 0;
 }
 
-static int qup_i2c_resume(struct device *device)
+
+unsigned long g_resume_time_stamp;  //TomChu add for P02 backlight control
+extern void disable_pad_wait_icon(void);  //TomChu add to disable Pad waiting icon
+int qup_i2c_resume(struct device *device)
 {
 	struct platform_device *pdev = to_platform_device(device);
 	struct qup_i2c_dev *dev = platform_get_drvdata(pdev);
 	BUG_ON(qup_i2c_request_gpios(dev) != 0);
+	if(MSM_8960_GSBI10_QUP_I2C_BUS_ID==dev->adapter.nr){
+               if(AX_MicroP_IsP01Connected()  && hdmi_exist_realtime()){    
+			mdelay(30);    // add delay 30 ms to avoid i2c signal ramp up 
+       }
+    }
 	clk_prepare(dev->clk);
 	clk_prepare(dev->pclk);
 	dev->suspended = 0;
+// ASUS_BSP +++ Sina: turn on 3V3 of pad while resuming
+
+       if(MSM_8960_GSBI10_QUP_I2C_BUS_ID==dev->adapter.nr){
+               if(AX_MicroP_IsP01Connected()  && hdmi_exist_realtime()){
+/*                        
+                       if(AX_MicroP_HW_isER3() && g_turnoffPwrEn){
+                            AX_MicroP_setGPIOOutputPin(OUT_uP_PWR_EN, 1);
+                            g_turnoffPwrEn=0;
+                       }
+*/    
+#ifdef CONFIG_ASUSEC               
+                        if(isKeyboardWakeup()){
+							   printk("%s: toggle 3V3 on padstation\n", __func__);
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_RST, 0);
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 0); // when in power off state, the reset/power down pins shuold be low..                        
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 1);
+							   mdelay(200); //to quarantee timing issue, use cpu-busy waiting is better
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 1); // jack:when in power on state, the power down pin shuold be high..
+							   mdelay(1);
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 0);
+					    }
+					    else
+#endif
+					    {
+							   printk("%s: turnOn 3V3 on padstation\n", __func__);
+                               
+                               AX_MicroP_setGPIOOutputPin(OUT_uP_FM34_PDN, 1); // jack:when in power on state, the power down pin shuold be high..
+                               mdelay(1);
+							   AX_MicroP_setGPIOOutputPin(OUT_uP_EN_3V3_1V2, 0);
+						}
+                       g_resume_time_stamp = jiffies;
+                       disable_pad_wait_icon();
+               }
+       }
+       
 	return 0;
 }
+EXPORT_SYMBOL_GPL(qup_i2c_resume);
 #endif /* CONFIG_PM */
 
 #ifdef CONFIG_PM_RUNTIME

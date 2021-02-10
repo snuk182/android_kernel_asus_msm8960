@@ -47,7 +47,7 @@
 #include <mach/msm_serial_hs_lite.h>
 #include <asm/mach-types.h>
 #include "msm_serial_hs_hwreg.h"
-
+extern int g_bDebugMode;
 struct msm_hsl_port {
 	struct uart_port	uart;
 	char			name[16];
@@ -1119,7 +1119,9 @@ static void wait_for_xmitr(struct uart_port *port)
 	if (!(msm_hsl_read(port, regmap[vid][UARTDM_SR]) &
 			UARTDM_SR_TXEMT_BMSK)) {
 		while (!(msm_hsl_read(port, regmap[vid][UARTDM_ISR]) &
-			UARTDM_ISR_TX_READY_BMSK)) {
+			UARTDM_ISR_TX_READY_BMSK) &&
+		       !(msm_hsl_read(port, regmap[vid][UARTDM_SR]) &
+			UARTDM_SR_TXEMT_BMSK)) {
 			udelay(1);
 			touch_nmi_watchdog();
 			cpu_relax();
@@ -1155,6 +1157,9 @@ static void msm_hsl_console_write(struct console *co, const char *s,
 	struct msm_hsl_port *msm_hsl_port;
 	unsigned int vid;
 	int locked;
+	//    [A66][kernel][NA][other]workaround: After enable hs/uart debug, the system enable uart message.
+       if (!g_bDebugMode)
+               return;
 
 	BUG_ON(co->index < 0 || co->index >= UART_NR);
 

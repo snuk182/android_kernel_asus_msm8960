@@ -232,6 +232,11 @@ static int32_t pm8xxx_adc_arb_cntrl(uint32_t arb_cntrl,
 		rc = pm8xxx_writeb(adc_pmic->dev->parent,
 				PM8XXX_ADC_ARB_USRP_CNTRL1, data_arb_cntrl);
 		if (rc < 0) {
+             //ASUS BSP Eason_Chang +++
+			if (arb_cntrl){     
+			wake_unlock(&adc_pmic->adc_wakelock);  
+			}                    
+            //ASUS BSP Eason_Chang ---
 			pr_err("PM8xxx arb cntrl write failed with %d\n", rc);
 			return rc;
 		}
@@ -242,7 +247,7 @@ static int32_t pm8xxx_adc_arb_cntrl(uint32_t arb_cntrl,
 		INIT_COMPLETION(adc_pmic->adc_rslt_completion);
 		rc = pm8xxx_writeb(adc_pmic->dev->parent,
 			PM8XXX_ADC_ARB_USRP_CNTRL1, data_arb_cntrl);
-	} else
+	} //else    //ASUS BSP Eason_Chang
 		wake_unlock(&adc_pmic->adc_wakelock);
 
 	return 0;
@@ -532,8 +537,14 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		//ASUS BSP Eason_Chang +++ 
+		/*if (rc < 0)
+			return rc;*/
+        if (rc < 0){
+			pm8xxx_adc_calib_first_adc = false;
 			return rc;
+        }	
+		//ASUS BSP Eason_Chang --- 
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -607,8 +618,10 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		if (rc < 0){//ASUS BSP Eason_Chang
+			pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 			return rc;
+		}//	ASUS BSP Eason_Chang
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -637,8 +650,10 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB)) {
 		rc = pm8xxx_adc_read_reg(PM8XXX_ADC_ARB_USRP_CNTRL1,
 					&data_arb_usrp_cntrl1);
-		if (rc < 0)
+		if (rc < 0){//ASUS BSP Eason_Chang
+		    pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 			return rc;
+			}//	ASUS BSP Eason_Chang
 		usleep_range(PM8XXX_ADC_CONV_TIME_MIN,
 					PM8XXX_ADC_CONV_TIME_MAX);
 	}
@@ -662,6 +677,7 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					calib_read_2;
 calib_fail:
 	rc = pm8xxx_adc_arb_cntrl(0, CHANNEL_NONE);
+	pm8xxx_adc_calib_first_adc = false;//ASUS BSP Eason_Chang
 	if (rc < 0) {
 		pr_err("%s: Configuring ADC Arbiter disable"
 					"failed\n", __func__);
@@ -674,7 +690,7 @@ uint32_t pm8xxx_adc_read(enum pm8xxx_adc_channels channel,
 				struct pm8xxx_adc_chan_result *result)
 {
 	struct pm8xxx_adc *adc_pmic = pmic_adc;
-	int i = 0, rc = 0, rc_fail, amux_prescaling, scale_type;
+	int i = 0, rc = 0, rc_fail, amux_prescaling, scale_type, t;
 	enum pm8xxx_adc_premux_mpp_scale_type mpp_scale;
 
 	if (!pm8xxx_adc_initialized)
@@ -734,7 +750,17 @@ uint32_t pm8xxx_adc_read(enum pm8xxx_adc_channels channel,
 		goto fail;
 	}
 
-	wait_for_completion(&adc_pmic->adc_rslt_completion);
+	//carol+, to prevent miss adc_isr and block whole adc reading process
+        //from test, longest isr is about 30ms, set timeout to 100ms
+	//wait_for_completion(&adc_pmic->adc_rslt_completion);
+        t = wait_for_completion_timeout(&adc_pmic->adc_rslt_completion, 20 ); //HZ is 100, set timeout to 100ms 
+	if(0==t )//timeout
+	{
+		pr_err("Error, timeout!\n");
+		rc = -EINVAL;
+		goto fail;
+	}
+	//carol-
 
 	rc = pm8xxx_adc_read_adc_code(&result->adc_code);
 	if (rc) {
@@ -1042,23 +1068,6 @@ static int get_adc(void *data, u64 *val)
 }
 DEFINE_SIMPLE_ATTRIBUTE(reg_fops, get_adc, NULL, "%llu\n");
 
-static int get_mpp_adc(void *data, u64 *val)
-{
-	struct pm8xxx_adc_chan_result result;
-	int i = (int)data;
-	int rc;
-
-	rc = pm8xxx_adc_mpp_config_read(i,
-		ADC_MPP_1_AMUX6, &result);
-	if (!rc)
-		pr_info("ADC MPP value raw:%x physical:%lld\n",
-			result.adc_code, result.physical);
-	*val = result.physical;
-
-	return 0;
-}
-DEFINE_SIMPLE_ATTRIBUTE(reg_mpp_fops, get_mpp_adc, NULL, "%llu\n");
-
 #ifdef CONFIG_DEBUG_FS
 static void create_debugfs_entries(void)
 {
@@ -1100,6 +1109,7 @@ static int32_t pm8xxx_adc_init_hwmon(struct platform_device *pdev)
 						adc_pmic->adc_channel[i].name;
 		memcpy(&adc_pmic->sens_attr[i], &pm8xxx_adc_attr,
 						sizeof(pm8xxx_adc_attr));
+		sysfs_attr_init(&adc_pmic->sens_attr[i].dev_attr.attr);
 		rc = device_create_file(&pdev->dev,
 				&adc_pmic->sens_attr[i].dev_attr);
 		if (rc) {

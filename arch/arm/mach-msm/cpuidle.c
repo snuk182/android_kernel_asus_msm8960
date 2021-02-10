@@ -1,4 +1,4 @@
-/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -105,8 +105,9 @@ static int msm_cpuidle_enter(
 
 	local_irq_disable();
 
+	pm_mode = msm_pm_idle_prepare(dev, drv, index);
 #ifdef CONFIG_MSM_SLEEP_STATS
-	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_ENTER, NULL);
+	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_ENTER, (void *)pm_mode);
 #endif
 
 #ifdef CONFIG_CPU_PM
@@ -114,7 +115,7 @@ static int msm_cpuidle_enter(
 #endif
 
 	pm_mode = msm_pm_idle_prepare(dev, drv, index);
-	msm_pm_idle_enter(pm_mode);
+	dev->last_residency = msm_pm_idle_enter(pm_mode);
 	for (i = 0; i < dev->state_count; i++) {
 		st_usage = &dev->states_usage[i];
 		if ((enum msm_pm_sleep_mode) cpuidle_get_statedata(st_usage)
@@ -129,7 +130,7 @@ static int msm_cpuidle_enter(
 #endif
 
 #ifdef CONFIG_MSM_SLEEP_STATS
-	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_EXIT, NULL);
+	atomic_notifier_call_chain(head, MSM_CPUIDLE_STATE_EXIT, (void *)pm_mode);
 #endif
 
 	local_irq_enable();

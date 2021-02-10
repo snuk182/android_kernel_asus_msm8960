@@ -120,7 +120,7 @@ int chk_config_get_id(void)
 		return 0;
 
 	if (driver->use_device_tree) {
-		if (machine_is_copper())
+		if (machine_is_msm8974())
 			return MSM8974_TOOLS_ID;
 		else
 			return 0;
@@ -133,8 +133,9 @@ int chk_config_get_id(void)
 		case MSM_CPU_8064:
 			return APQ8064_TOOLS_ID;
 		case MSM_CPU_8930:
+		case MSM_CPU_8930AA:
 			return MSM8930_TOOLS_ID;
-		case MSM_CPU_COPPER:
+		case MSM_CPU_8974:
 			return MSM8974_TOOLS_ID;
 		case MSM_CPU_8625:
 			return MSM8625_TOOLS_ID;
@@ -157,9 +158,10 @@ int chk_apps_only(void)
 	case MSM_CPU_8960:
 	case MSM_CPU_8064:
 	case MSM_CPU_8930:
+	case MSM_CPU_8930AA:
 	case MSM_CPU_8627:
 	case MSM_CPU_9615:
-	case MSM_CPU_COPPER:
+	case MSM_CPU_8974:
 		return 1;
 	default:
 		return 0;
@@ -175,8 +177,8 @@ int chk_apps_master(void)
 {
 	if (driver->use_device_tree)
 		return 1;
-	else if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm9615() ||
-		cpu_is_apq8064() || cpu_is_msm8627())
+	else if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm8930aa() ||
+		cpu_is_msm9615() || cpu_is_apq8064() || cpu_is_msm8627())
 		return 1;
 	else
 		return 0;
@@ -200,25 +202,86 @@ int chk_polling_response(void)
 		return 0;
 }
 
+/*
+ * This function should be called if you feel that the logging process may
+ * need to be woken up. For instance, if the logging mode is MEMORY_DEVICE MODE
+ * and while trying to read data from a SMD data channel there are no buffers
+ * available to read the data into, then this function should be called to
+ * determine if the logging process needs to be woken up.
+ */
+void chk_logging_wakeup(void)
+{
+	int i;
+
+	/* Find the index of the logging process */
+	for (i = 0; i < driver->num_clients; i++)
+		if (driver->client_map[i].pid ==
+			driver->logging_process_id)
+			break;
+
+	if (i < driver->num_clients) {
+		/* At very high logging rates a race condition can
+		 * occur where the buffers containing the data from
+		 * an smd channel are all in use, but the data_ready
+		 * flag is cleared. In this case, the buffers never
+		 * have their data read/logged.  Detect and remedy this
+		 * situation.
+		 */
+		if ((driver->data_ready[i] & USER_SPACE_LOG_TYPE) == 0) {
+			driver->data_ready[i] |= USER_SPACE_LOG_TYPE;
+			pr_debug("diag: Force wakeup of logging process\n");
+			wake_up_interruptible(&driver->wait_q);
+		}
+	}
+}
+
 void __diag_smd_send_req(void)
 {
-	void *buf = NULL;
+	char *buf = NULL;
 	int *in_busy_ptr = NULL;
 	struct diag_request *write_ptr_modem = NULL;
 
-	if (!driver->in_busy_1) {
-		buf = driver->buf_in_1;
-		write_ptr_modem = driver->write_ptr_1;
-		in_busy_ptr = &(driver->in_busy_1);
-	} else if (!driver->in_busy_2) {
-		buf = driver->buf_in_2;
-		write_ptr_modem = driver->write_ptr_2;
-		in_busy_ptr = &(driver->in_busy_2);
-	}
-
-	if (driver->ch && buf) {
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+	if (driver->ch) {
+		char *buf2 = NULL;
+		struct diag_request *write_ptr_modem2 = NULL;
 		int r = smd_read_avail(driver->ch);
+		if (driver->logging_mode != MEMORY_DEVICE_MODE) {
+			if (!driver->in_busy_1) {
+				buf = driver->buf_in_1;
+				write_ptr_modem = driver->write_ptr_1;
+				in_busy_ptr = &(driver->in_busy_1);
+			} else if (!driver->in_busy_2) {
+				buf = driver->buf_in_2;
+				write_ptr_modem = driver->write_ptr_2;
+				in_busy_ptr = &(driver->in_busy_2);
+			}
+		}
+		else {
+			if (!driver->is_sd_close && driver->buf_used < DIAG_MODEM_BUFFER_NUM) {
+				if (r > (IN_BUF_SIZE_ASUS - driver->pre_buf_size)) {
+					buf2 = driver->buf_in_3[driver->tail];
+					write_ptr_modem2 = driver->write_ptr_3[driver->tail];
+					write_ptr_modem2->length = driver->pre_buf_size;
+					driver->tail++;
+					if (driver->tail >= DIAG_MODEM_BUFFER_NUM) {
+						driver->tail = 0;
+					}
+					driver->buf_used++;
+					driver->pre_buf_size = 0;
+				}
+				buf = driver->buf_in_3[driver->tail];
+				write_ptr_modem = driver->write_ptr_3[driver->tail];
+			}
+		}
 
+		if (buf == NULL) {
+			if (!driver->is_sd_close) {
+				pr_err("diag: buffer full and avail %d\n", r);
+			}
+			return;
+		}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 		if (r > IN_BUF_SIZE) {
 			if (r < MAX_IN_BUF_SIZE) {
 				pr_err("diag: SMD sending in "
@@ -234,15 +297,29 @@ void __diag_smd_send_req(void)
 			if (!buf)
 				pr_info("Out of diagmem for Modem\n");
 			else {
-				APPEND_DEBUG('i');
-				smd_read(driver->ch, buf, r);
-				APPEND_DEBUG('j');
-				write_ptr_modem->length = r;
-				*in_busy_ptr = 1;
-				diag_device_write(buf, MODEM_DATA,
-							 write_ptr_modem);
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+				if (driver->logging_mode != MEMORY_DEVICE_MODE) {
+					APPEND_DEBUG('i');
+					smd_read(driver->ch, (void *)buf, r);
+					APPEND_DEBUG('j');
+					write_ptr_modem->length = r;
+					*in_busy_ptr = 1;
+					diag_device_write(buf, MODEM_DATA, write_ptr_modem);
+				} else {
+					APPEND_DEBUG('i');
+					smd_read(driver->ch,(void *)(buf + driver->pre_buf_size), r);
+					driver->pre_buf_size += r;
+					APPEND_DEBUG('j');
+					if (buf2 != NULL) {
+						diag_device_write(buf2, MODEM_DATA, write_ptr_modem2);
+					}
+				}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 			}
 		}
+	} else if (driver->ch && !buf &&
+		(driver->logging_mode == MEMORY_DEVICE_MODE)) {
+		chk_logging_wakeup();
 	}
 }
 
@@ -280,6 +357,11 @@ int diag_device_write(void *buf, int proc_num, struct diag_request *write_ptr)
 		if (proc_num == MODEM_DATA) {
 			driver->in_busy_1 = 0;
 			driver->in_busy_2 = 0;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+			driver->is_sd_close = false;
+			driver->head = driver->tail = driver->buf_used = 0;
+			driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 			queue_work(driver->diag_wq, &(driver->
 							diag_read_smd_work));
 		} else if (proc_num == QDSP_DATA) {
@@ -412,6 +494,9 @@ void __diag_smd_wcnss_send_req(void)
 					 write_ptr_wcnss);
 			}
 		}
+	} else if (driver->ch_wcnss && !buf &&
+		(driver->logging_mode == MEMORY_DEVICE_MODE)) {
+		chk_logging_wakeup();
 	}
 }
 
@@ -458,6 +543,9 @@ void __diag_smd_qdsp_send_req(void)
 							 write_ptr_qdsp);
 			}
 		}
+	} else if (driver->chqdsp && !buf &&
+		(driver->logging_mode == MEMORY_DEVICE_MODE)) {
+		chk_logging_wakeup();
 	}
 }
 
@@ -511,6 +599,7 @@ void diag_create_msg_mask_table(void)
 	CREATE_MSG_MASK_TBL_ROW(20);
 	CREATE_MSG_MASK_TBL_ROW(21);
 	CREATE_MSG_MASK_TBL_ROW(22);
+	CREATE_MSG_MASK_TBL_ROW(23);
 }
 
 static void diag_set_msg_mask(int rt_mask)
@@ -894,7 +983,7 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 			memcpy(buf+header_size, ptr,
 				 4 * (driver->msg_mask->msg_mask_size));
 			if (ch) {
-				while (retry_count < 3) {
+				while (retry_count < 6) {
 					size = smd_write(ch, buf, header_size +
 					 4*(driver->msg_mask->msg_mask_size));
 					if (size == -ENOMEM) {
@@ -1229,7 +1318,8 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 		driver->apps_rsp_buf[1] = 0x1;
 		driver->apps_rsp_buf[2] = 0x1;
 		driver->apps_rsp_buf[3] = 0x0;
-		*(int *)(driver->apps_rsp_buf + 4) = MSG_MASK_TBL_CNT;
+		/* -1 to un-account for OEM SSID range */
+		*(int *)(driver->apps_rsp_buf + 4) = MSG_MASK_TBL_CNT - 1;
 		*(uint16_t *)(driver->apps_rsp_buf + 8) = MSG_SSID_0;
 		*(uint16_t *)(driver->apps_rsp_buf + 10) = MSG_SSID_0_LAST;
 		*(uint16_t *)(driver->apps_rsp_buf + 12) = MSG_SSID_1;
@@ -1545,6 +1635,11 @@ int diagfwd_connect(void)
 	driver->usb_connected = 1;
 	driver->in_busy_1 = 0;
 	driver->in_busy_2 = 0;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+	driver->is_sd_close = false;
+	driver->head = driver->tail = driver->buf_used = 0;
+	driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 	driver->in_busy_qdsp_1 = 0;
 	driver->in_busy_qdsp_2 = 0;
 	driver->in_busy_wcnss_1 = 0;
@@ -1580,6 +1675,11 @@ int diagfwd_disconnect(void)
 	if (driver->logging_mode == USB_MODE) {
 		driver->in_busy_1 = 1;
 		driver->in_busy_2 = 1;
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+		driver->is_sd_close = true;
+		driver->head = driver->tail = driver->buf_used = 0;
+		driver->pre_buf_size = 0;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 		driver->in_busy_qdsp_1 = 1;
 		driver->in_busy_qdsp_2 = 1;
 		driver->in_busy_wcnss_1 = 1;
@@ -1835,6 +1935,7 @@ static struct platform_driver diag_smd_lite_driver = {
 
 void diagfwd_init(void)
 {
+	int i;
 	diag_debug_buf_idx = 0;
 	driver->read_len_legacy = 0;
 	driver->use_device_tree = has_device_tree();
@@ -1861,6 +1962,22 @@ void diagfwd_init(void)
 			goto err;
 		kmemleak_not_leak(driver->log_mask);
 	}
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+	for (i = 0; i < DIAG_MODEM_BUFFER_NUM; ++i) {
+		if (driver->buf_in_3[i] == NULL) {
+			driver->buf_in_3[i] = kzalloc(IN_BUF_SIZE_ASUS, GFP_KERNEL);
+			if (driver->buf_in_3[i] == NULL)
+				goto err;
+		}
+
+		if (driver->write_ptr_3[i] == NULL) {
+			driver->write_ptr_3[i] = kzalloc(
+				sizeof(struct diag_request), GFP_KERNEL);
+			if (driver->write_ptr_3[i] == NULL)
+				goto err;
+		}
+	}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 	if (driver->buf_in_1 == NULL) {
 		driver->buf_in_1 = kzalloc(IN_BUF_SIZE, GFP_KERNEL);
 		if (driver->buf_in_1 == NULL)
@@ -2060,6 +2177,12 @@ err:
 		kfree(driver->event_mask);
 		kfree(driver->log_mask);
 		kfree(driver->msg_mask);
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+		for (i = 0; i < DIAG_MODEM_BUFFER_NUM; ++i) {
+			kfree(driver->buf_in_3[i]);
+			kfree(driver->write_ptr_3[i]);
+		}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 		kfree(driver->buf_in_1);
 		kfree(driver->buf_in_2);
 		kfree(driver->buf_in_qdsp_1);
@@ -2094,6 +2217,7 @@ err:
 
 void diagfwd_exit(void)
 {
+	int i;
 	smd_close(driver->ch);
 	smd_close(driver->chqdsp);
 	smd_close(driver->ch_wcnss);
@@ -2111,6 +2235,12 @@ void diagfwd_exit(void)
 	kfree(driver->event_mask);
 	kfree(driver->log_mask);
 	kfree(driver->msg_mask);
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+	for (i = 0; i < DIAG_MODEM_BUFFER_NUM; ++i) {
+		kfree(driver->buf_in_3[i]);
+		kfree(driver->write_ptr_3[i]);
+	}
+// ASUS_BSP--- Wenli "Improve diag to sd"
 	kfree(driver->buf_in_1);
 	kfree(driver->buf_in_2);
 	kfree(driver->buf_in_qdsp_1);

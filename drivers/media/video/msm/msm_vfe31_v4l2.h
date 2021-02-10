@@ -695,7 +695,7 @@ struct vfe31_free_buf {
 struct vfe31_output_ch {
 	struct list_head free_buf_queue;
 	spinlock_t free_buf_lock;
-	uint16_t image_mode;
+	uint16_t output_fmt;
 	int8_t ch0;
 	int8_t ch1;
 	int8_t ch2;

@@ -22,6 +22,108 @@
 #include <linux/printk.h>
 #include <linux/dynamic_debug.h>
 #include <asm/byteorder.h>
+#include <asm/bug.h>
+
+#include <linux/asusdebug.h>
+
+// +++ ASUS_BSP : miniporting : jackson : support hardware id in kernel
+enum A60K_HWID
+{
+	A60K_EVB = 0x0,
+	A60K_SR1_1 = 0x1,   		//  Hann Start Panel & Sharp Panel
+	A60K_SR1_2_ES1 = 0x2,   	// M8960 ES1
+	A60K_SR1_2_ES2 = 0x3,	// Non - Used
+	A60K_ER1 = 0x4,			// Non - Used
+	A60K_ER2 = 0x5,			// Non - Used	
+	A60K_PR = 0x6,			// Non - Used
+	// +++ ASUS_BSP : miniporting : Add for A66 Proj
+	A66_HW_ID_SR1_1 = 0x7,  	//M8960 ES1
+	A66_HW_ID_SR2 = 0x8,     	//M8960 ES2
+	A66_HW_ID_ER1 = 0x9,
+	A66_HW_ID_ER2 = 0xa,
+	A66_HW_ID_ER3 = 0xb,         //asus bsp jacob kung add
+	A66_HW_ID_PR  = 0xc,	     //asus bsp jacob kung add
+	// --- ASUS_BSP : miniporting : Add for A66 Proj
+	A60K_UNKNOWN = 0xFF
+};  
+
+extern enum A60K_HWID g_A60K_hwID;
+// --- ASUS_BSP : miniporting : jackson : support hardware id in kernel
+
+// +++ ASUS_BSP : miniporting : TEST for show CUP REVISION
+enum CPU_TYPE
+{
+	CPU_TYPE_UNKNOWN = 0x0,
+	//M8960
+	M8960 = 0x1,
+	//M8260
+	M8260A =  0x2
+
+	
+};
+
+enum CPU_REV
+{
+	CPU_REV_UNKNOWN = 0x0,
+	CPU_REV_V1 = 0x1,
+	CPU_REV_V2 = 0x2,
+	CPU_REV_V3 = 0x3,
+	CPU_REV_V4 = 0x4,
+	CPU_REV_V5 = 0x5,
+	CPU_REV_V6 = 0x6
+};  
+enum CPU_HDCP
+{
+	HDCP_UNKNOWN = 0x0,
+	HDCP_ON = 0x1,
+	HDCP_OFF = 0x2
+	
+};  
+
+
+//extern enum CPU_REV g_CPU_REVISION;
+// --- ASUS_BSP : miniporting : TEST for show CUP REVISION
+
+// +++ ASUS_BSP : miniporting : support platform info in kernel
+struct asus_platform_info {
+	char cpu_ver[32];
+	char pmic_ver[32];
+	char cpu_id[32];
+	unsigned hdcp;
+	enum CPU_REV cpu_revision;
+	enum CPU_TYPE cpu_type;
+	enum CPU_HDCP cpu_hdcp;
+	unsigned dc;
+	//unsigned cpu_revision;
+	//unsigned cpu_type;
+	
+	//int  hdcp_type;
+		
+};
+extern struct asus_platform_info g_asus_plat_info;
+
+
+enum {
+	PMIC_VER_UNKNOWN = 0,
+	PMIC_VER_V1    = 1,
+	PMIC_VER_V2    = 2,
+	PMIC_VER_V3    = 3,
+	PMIC_VER_V4    = 4,
+	PMIC_VER_V5    = 5,
+	PMIC_VER_V6    = 6
+};
+extern char *CPU_VER[];
+extern char *PMIC_VER[];
+// --- ASUS_BSP : miniporting : support platform info in kernel
+
+//+++ ASUS_BSP : miniporting : Add for get atd ptk mode
+extern char g_ATD_mode;
+extern char g_PTK_mode;
+//--- ASUS_BSP : miniporting : Add for get atd ptk mode
+
+//+++ ASUS_BSP : miniporting : Add for audio dbg mode
+extern char g_Audio_dbg_mode;
+//--- ASUS_BSP : miniporting : Add for audio dbg mode
 
 #define USHRT_MAX	((u16)(~0U))
 #define SHRT_MAX	((s16)(USHRT_MAX>>1))

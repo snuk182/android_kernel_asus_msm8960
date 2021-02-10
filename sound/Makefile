@@ -11,7 +11,7 @@ obj-$(CONFIG_SND_AOA) += aoa/
 
 # This one must be compilable even if sound is configured out
 obj-$(CONFIG_AC97_BUS) += ac97_bus.o
-
+obj-$(CONFIG_FM34) += fm34.o
 ifeq ($(CONFIG_SND),y)
   obj-y += last.o
 endif

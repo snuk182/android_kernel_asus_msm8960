@@ -31,6 +31,8 @@
 #include <media/msm/vcd_api.h>
 #include <media/msm/vidc_init.h>
 
+#include <linux/asusdebug.h>
+
 #include "venc_internal.h"
 #include "vcd_res_tracker_api.h"
 
@@ -302,6 +304,7 @@ static void vid_enc_lean_event(struct video_client_ctx *client_ctx,
 	venc_msg->venc_msg_info.statuscode =
 		vid_enc_get_status(status);
 
+	printk("vid_enc_lean_event:0x%x", event);
 	switch (event) {
 	case VCD_EVT_RESP_FLUSH_INPUT_DONE:
 		INFO("\n msm_vidc_enc: Sending VCD_EVT_RESP_FLUSH_INPUT_DONE"
@@ -450,7 +453,7 @@ static int vid_enc_get_next_msg(struct video_client_ctx *client_ctx,
 	mutex_lock(&client_ctx->msg_queue_lock);
 
 	if (!list_empty(&client_ctx->msg_queue)) {
-		DBG("%s(): After Wait\n", __func__);
+		printk("%s(): After Wait\n", __func__);
 		vid_enc_msg = list_first_entry(&client_ctx->msg_queue,
 					struct vid_enc_msg, list);
 		list_del(&vid_enc_msg->list);
@@ -769,7 +772,7 @@ static long vid_enc_ioctl(struct file *file,
 		struct venc_msg cb_msg;
 		if (copy_from_user(&venc_msg, arg, sizeof(venc_msg)))
 			return -EFAULT;
-		DBG("VEN_IOCTL_CMD_READ_NEXT_MSG\n");
+		printk("VEN_IOCTL_CMD_READ_NEXT_MSG\n");
 		result_read = vid_enc_get_next_msg(client_ctx, &cb_msg);
 		if (result_read < 0)
 			return result_read;
@@ -931,6 +934,7 @@ static long vid_enc_ioctl(struct file *file,
 	}
 	case VEN_IOCTL_CMD_START:
 	{
+		ASUSEvtlog("[BAT][VID]EVTLOG_VIDEO_RECORD_START\n");
 		INFO("\n %s(): Executing VEN_IOCTL_CMD_START", __func__);
 		result = vid_enc_start_stop(client_ctx, true);
 		if (!result) {
@@ -941,8 +945,10 @@ static long vid_enc_ioctl(struct file *file,
 	}
 	case VEN_IOCTL_CMD_STOP:
 	{
+		ASUSEvtlog("[BAT][VID]EVTLOG_VIDEO_RECORD_STOP\n");
 		INFO("\n %s(): Executing VEN_IOCTL_CMD_STOP", __func__);
 		result = vid_enc_start_stop(client_ctx, false);
+		msleep(20);	//ASUS_BSP Stimber "Add delay for stop recording"
 		if (!result) {
 			ERR("setting VEN_IOCTL_CMD_STOP failed\n");
 			return -EIO;

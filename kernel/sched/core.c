@@ -86,6 +86,8 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+#include <linux/asus_global.h>
+extern struct _asus_global asus_global;
 
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
@@ -3231,7 +3233,17 @@ need_resched:
 		rq->nr_switches++;
 		rq->curr = next;
 		++*switch_count;
-
+		
+        //[CR] Save CPU prev/next task pointers into asus global
+        if(1 == cpu)  {
+            asus_global.pprev_cpu1 = prev;
+            asus_global.pnext_cpu1 = next;
+        }
+        else {
+            asus_global.pprev_cpu0 = prev;
+            asus_global.pnext_cpu0 = next;
+        }
+        
 		context_switch(rq, prev, next); /* unlocks the rq */
 		/*
 		 * The context switch have flipped the stack from under us

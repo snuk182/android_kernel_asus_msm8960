@@ -559,7 +559,18 @@ static void notify_other_smsm(uint32_t smsm_entry, uint32_t notify_mask)
 	 * on DEM-based targets.  Grabbing a wakelock in this case will
 	 * abort the power-down sequencing.
 	 */
+
+//BSP+++ "Qualcomm pathc workaround for SMD snapshot full 32 issue"
+#if 0
 	smsm_cb_snapshot(0);
+#else
+	if (smsm_info.intr_mask &&
+	    (__raw_readl(SMSM_INTR_MASK_ADDR(smsm_entry, SMSM_APPS))
+				& notify_mask)) {
+		smsm_cb_snapshot(0);
+	}
+#endif
+//BSP--- "Qualcomm pathc workaround for SMD snapshot full 32 issue"
 }
 
 void smd_diag(void)
@@ -2761,6 +2772,7 @@ int smsm_change_state(uint32_t smsm_entry,
 {
 	unsigned long flags;
 	uint32_t  old_state, new_state;
+    int ret;
 
 	if (smsm_entry >= SMSM_NUM_ENTRIES) {
 		pr_err("smsm_change_state: Invalid entry %d",
@@ -2772,6 +2784,15 @@ int smsm_change_state(uint32_t smsm_entry,
 		pr_err("smsm_change_state <SM NO STATE>\n");
 		return -EIO;
 	}
+
+    ret = kfifo_avail(&smsm_snapshot_fifo);
+	if (ret < SMSM_SNAPSHOT_SIZE) {
+        if( smsm_cb_wq ) {
+            flush_workqueue(smsm_cb_wq);
+            pr_err("%s: flush_workqueue(smsm_cb_wq).\n", __func__);
+	    }
+    }
+
 	spin_lock_irqsave(&smem_lock, flags);
 
 	old_state = __raw_readl(SMSM_STATE_ADDR(smsm_entry));

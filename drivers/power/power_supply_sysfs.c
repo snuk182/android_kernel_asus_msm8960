@@ -46,6 +46,14 @@ static ssize_t power_supply_show_property(struct device *dev,
 	static char *type_text[] = {
 		"Unknown", "Battery", "UPS", "Mains", "USB",
 		"USB_DCP", "USB_CDP", "USB_ACA"
+//ASUS_BSP +++ Eason_Chang A68_101033 porting 
+		,"BMS"
+//ASUS_BSP --- Eason_Chang A68_101033 porting 		
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS
+		, "PadBattery", "DockBattery", "PadAC", "DockAC"
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	};
 	static char *status_text[] = {
 		"Unknown", "Charging", "Discharging", "Not charging", "Full"

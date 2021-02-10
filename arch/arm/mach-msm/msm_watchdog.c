@@ -27,12 +27,17 @@
 #include <asm/hardware/gic.h>
 #include <mach/msm_iomap.h>
 #include <asm/mach-types.h>
+#include <asm/cacheflush.h>
 #include <mach/scm.h>
 #include <mach/socinfo.h>
 #include "msm_watchdog.h"
 #include "timer.h"
+#include <linux/asus_global.h>
+extern struct _asus_global asus_global;
 
 #define MODULE_NAME "msm_watchdog"
+
+static struct workqueue_struct *watchdog_workQueue;
 
 #define TCSR_WDT_CFG	0x30
 
@@ -93,7 +98,7 @@ static int print_all_stacks = 1;
 module_param(print_all_stacks, int,  S_IRUGO | S_IWUSR);
 
 /* Area for context dump in secure mode */
-static void *scm_regsave;
+void *scm_regsave;
 
 static struct msm_watchdog_pdata __percpu **percpu_pdata;
 
@@ -105,6 +110,7 @@ static DECLARE_WORK(init_dogwork_struct, init_watchdog_work);
 /* Called from the FIQ bark handler */
 void msm_wdog_bark_fin(void)
 {
+	flush_cache_all();
 	pr_crit("\nApps Watchdog bark received - Calling Panic\n");
 	panic("Apps Watchdog Bark received\n");
 }
@@ -244,7 +250,10 @@ static void pet_watchdog_work(struct work_struct *work)
 	pet_watchdog();
 
 	if (enable)
-		schedule_delayed_work_on(0, &dogwork_struct, delay_time);
+    {
+		//schedule_delayed_work_on(0, &dogwork_struct, delay_time);
+        queue_delayed_work_on(0, watchdog_workQueue, &dogwork_struct, delay_time);
+    }
 }
 
 static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
@@ -297,7 +306,8 @@ static void configure_bark_dump(void)
 		if (scm_regsave) {
 			cmd_buf.addr = __pa(scm_regsave);
 			cmd_buf.len  = PAGE_SIZE;
-
+			printk("scm_regsave = 0x%x,cmd_buf.addr = 0x%x\r\n",(unsigned int)scm_regsave,(unsigned int)cmd_buf.addr);
+			asus_global.phycpucontextadd = cmd_buf.addr;
 			ret = scm_call(SCM_SVC_UTIL, SCM_SET_REGSAVE_CMD,
 				       &cmd_buf, sizeof(cmd_buf), NULL, 0);
 			if (ret)
@@ -360,12 +370,14 @@ static void init_watchdog_work(struct work_struct *work)
 		}
 	}
 
-	configure_bark_dump();
+	//configure_bark_dump();
 
 	__raw_writel(timeout, msm_tmr0_base + WDT0_BARK_TIME);
 	__raw_writel(timeout + 3*WDT_HZ, msm_tmr0_base + WDT0_BITE_TIME);
 
-	schedule_delayed_work_on(0, &dogwork_struct, delay_time);
+	//schedule_delayed_work_on(0, &dogwork_struct, delay_time);
+	queue_delayed_work_on(0, watchdog_workQueue, &dogwork_struct, delay_time);
+	
 
 	atomic_notifier_chain_register(&panic_notifier_list,
 				       &panic_blk);
@@ -400,6 +412,12 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 
 	msm_tmr0_base = msm_timer_get_timer0_base();
 
+    watchdog_workQueue  = create_singlethread_workqueue("WATCHDOG_WORKQUEUE");
+    if (IS_ERR(watchdog_workQueue)) {
+        pr_err("%s: create_singlethread_workqueue ENOMEM\n", __func__);
+        return -ENOMEM;
+    }
+    
 	/*
 	 * This is only temporary till SBLs turn on the XPUs
 	 * This initialization will be done in SBLs on a later releases
@@ -410,8 +428,12 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	if (pdata->needs_expired_enable)
 		__raw_writel(0x1, MSM_CLK_CTL_BASE + 0x3820);
 
+	configure_bark_dump();
+
 	delay_time = msecs_to_jiffies(pdata->pet_time);
-	schedule_work_on(0, &init_dogwork_struct);
+	//schedule_work_on(0, &init_dogwork_struct);
+    queue_work_on(0, watchdog_workQueue, &init_dogwork_struct);
+    
 	return 0;
 }
 

@@ -135,3 +135,11 @@ config AC97_BUS
 	  sound subsystem and other function drivers completely unrelated to
 	  sound although they're sharing the AC97 bus. Concerned drivers
 	  should "select" this.
+
+config FM34
+	boolean "FM34 chip"
+	depends on I2C && EEPROM_NUVOTON
+	default n
+	help
+	  FM33 is a voice processor.
+	  If you say yes here, you support for it.

@@ -23,6 +23,8 @@
 #include "devices.h"
 #include "board-8064.h"
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#ifdef CONFIG_IMX074
 #ifdef CONFIG_MSM_CAMERA
 
 static struct gpiomux_setting cam_settings[] = {
@@ -689,3 +691,5 @@ struct msm_camera_board_info apq8064_camera_board_info = {
 };
 #endif
 #endif
+#endif //end #ifdef CONFIG_IMX074
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/debugfs.h>
+#include <linux/reboot.h>
 
 #include <mach/irqs.h>
 #include <mach/scm.h>
@@ -80,8 +81,13 @@ static void modem_wdog_check(struct work_struct *work)
 
 	regval = readl_relaxed(q6_sw_wdog_addr);
 	if (!regval) {
+	#if 0	
 		pr_err("modem-8960: Modem watchdog wasn't activated!. Restarting the modem now.\n");
 		restart_modem();
+	#else
+		pr_err("modem-8960: Modem watchdog wasn't activated!. Reboot now !!! \n");
+		kernel_restart(NULL);
+	#endif
 	}
 
 	iounmap(q6_sw_wdog_addr);
@@ -158,7 +164,7 @@ void modem_crash_shutdown(const struct subsys_data *subsys)
 	crash_shutdown = 1;
 	smsm_reset_modem(SMSM_RESET);
 }
-
+#ifndef ASUS_SHIP_BUILD 
 /* FIXME: Get address, size from PIL */
 static struct ramdump_segment modemsw_segments[] = {
 	{0x89000000, 0x8D400000 - 0x89000000},
@@ -171,45 +177,205 @@ static struct ramdump_segment modemfw_segments[] = {
 static struct ramdump_segment smem_segments[] = {
 	{0x80000000, 0x00200000},
 };
-
+#endif
 static void *modemfw_ramdump_dev;
 static void *modemsw_ramdump_dev;
 static void *smem_ramdump_dev;
+#ifndef ASUS_SHIP_BUILD
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+#include <linux/rtc.h>
+#include <linux/syscalls.h>
 
+extern void pet_watchdog(void);
+extern int asus_rtc_read_time(struct rtc_time *tm);
+#define ASUSQ6SW_OFFSET 0x01BA01B0
+#define ASUSQ6SW_BYTES 48
+// ASUS_BSP--- Wenli "Modify for modem restart"
+#endif
 static int modem_ramdump(int enable,
 				const struct subsys_data *crashed_subsys)
 {
 	int ret = 0;
-
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+#ifndef ASUS_SHIP_BUILD
 	if (enable) {
-		ret = do_ramdump(modemsw_ramdump_dev, modemsw_segments,
-			ARRAY_SIZE(modemsw_segments));
+		int file_handle;
+		int ret;
+		struct rtc_time tm;
+		unsigned char *ptr;
+		mm_segment_t oldfs;
+		char dump_dir[256];
+		char messages[256];
+		char dump_log[64];
+		unsigned long offset = 0;
+		unsigned long copy_size = 0;
 
-		if (ret < 0) {
-			pr_err("Unable to dump modem sw memory (rc = %d).\n",
-			       ret);
-			goto out;
+		memset(dump_log, 0, sizeof(dump_log));
+
+		asus_rtc_read_time(&tm);
+
+		pet_watchdog();
+		//ptr = ioremap_nocache(modemsw_segments[0].address,  modemsw_segments[0].size);
+		//memcpy(dump_log, ptr + ASUSQ6SW_OFFSET, ASUSQ6SW_BYTES);
+		ptr = ioremap_nocache(modemsw_segments[0].address + ASUSQ6SW_OFFSET,  ASUSQ6SW_BYTES);
+		memcpy(dump_log, ptr, ASUSQ6SW_BYTES);
+		iounmap(ptr);
+		printk("%s\n", dump_log);
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(dump_dir, "/data/log/RAMDump_%04d%02d%02d-%02d%02d%02d",
+				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+		file_handle = sys_mkdir(dump_dir, 0755);
+		if(IS_ERR((const void *)file_handle))
+		{
+			printk("mkdir %s fail\n", dump_dir);
 		}
+		sprintf(messages, "%s/modem_sw.bin", dump_dir);
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC, 0644);
 
-		ret = do_ramdump(modemfw_ramdump_dev, modemfw_segments,
-			ARRAY_SIZE(modemfw_segments));
-
-		if (ret < 0) {
-			pr_err("Unable to dump modem fw memory (rc = %d).\n",
-				ret);
-			goto out;
+		if(!IS_ERR((const void *)file_handle))
+		{
+			printk("save_ram_dump Modem_sw+++\n");
+			while(modemsw_segments[0].size > offset){
+				if( modemsw_segments[0].size - offset > 1024 * 1024)
+					copy_size = 1024 * 1024;
+				else
+					copy_size = modemsw_segments[0].size - offset;
+				ptr = ioremap_nocache(modemsw_segments[0].address + offset,  copy_size);
+				ret = sys_write(file_handle, (unsigned char*)ptr, copy_size);
+				iounmap(ptr);
+				offset += copy_size;
+			}
+			sys_close(file_handle);
+			printk("save_ram_dump Modem_sw---\n");
 		}
+		set_fs(oldfs);
+		
 
-		ret = do_ramdump(smem_ramdump_dev, smem_segments,
-			ARRAY_SIZE(smem_segments));
+		pet_watchdog();
+		ptr = ioremap_nocache(modemfw_segments[0].address, modemfw_segments[0].size);
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(messages, "%s/modem_fw.bin", dump_dir);
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC, 0644);
 
-		if (ret < 0) {
-			pr_err("Unable to dump smem memory (rc = %d).\n", ret);
-			goto out;
+		if(!IS_ERR((const void *)file_handle))
+		{
+			printk("save_ram_dump Modem_fw+++\n");
+			ret = sys_write(file_handle, (unsigned char*)ptr, modemfw_segments[0].size);
+			sys_close(file_handle);
+			printk("save_ram_dump Modem_fw---\n");
 		}
+		set_fs(oldfs);
+		iounmap(ptr);
+
+		pet_watchdog();
+		ptr = ioremap_nocache(smem_segments[0].address, smem_segments[0].size);
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(messages, "%s/modem_smem.bin", dump_dir);
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC, 0644);
+
+		if(!IS_ERR((const void *)file_handle))
+		{
+			printk("save_ram_dump SMEM+++\n");
+			ret = sys_write(file_handle, (unsigned char*)ptr, smem_segments[0].size);
+			sys_close(file_handle);
+			printk("save_ram_dump SMEM---\n");
+		}
+		set_fs(oldfs);
+		iounmap(ptr);
+
+		pet_watchdog();
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(messages, "/data/log/modem_crash.log");
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC | O_TRUNC, 0644);
+		if(!IS_ERR((const void *)file_handle))
+		{
+			sprintf(messages, "%s\n%s\n", dump_dir, dump_log);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sys_close(file_handle);
+		}
+		sprintf(messages, "%s/load.cmm", dump_dir);
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC, 0644);
+
+		if(!IS_ERR((const void *)file_handle))
+		{
+			/* LOADMEM:
+			 * ENTRY &1 &2 &3 &4
+			 * LOCAL &START_ADDR
+			 * LOCAL &SIZE
+			 * LOCAL &LOG
+			 * LOCAL &OFFSET
+
+			 * &START_ADDR="&1"
+			 * &SIZE="&2"
+			 * &LOG="&RAMDUMPDIR/"+"&3"
+			 * &OFFSET="&4"
+
+			 * DATA.LOAD.BINARY &LOG &START_ADDR++&SIZE /LONG /SKIP &4
+			 * PRINT %CONTINUE " &LOG LOADED."
+			 * RETURN
+			 */
+			printk("save_ram_dump load.cmm+++\n");
+			sprintf(messages, "%s\n", dump_log);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "GOSUB LOADMEM 0x%08lX 0x%08lX RAMDump_SMEM_%04d%02d%02d-%02d%02d%02d.bin 0\r\n",
+					smem_segments[0].address, smem_segments[0].size,
+					tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "GOSUB LOADMEM 0x%08lX 0x%08lX RAMDump_Modem_sw_%04d%02d%02d-%02d%02d%02d.bin 0\r\n",
+					modemsw_segments[0].address, modemsw_segments[0].size,
+					tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "GOSUB LOADMEM 0x%08lX 0x%08lX RAMDump_Modem_fw_%04d%02d%02d-%02d%02d%02d.bin 0\r\n",
+					modemfw_segments[0].address, modemfw_segments[0].size,
+					tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "ENDDO\r\n");
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+
+			sprintf(messages, "LOADMEM:\r\nENTRY &1 &2 &3 &4\r\nLOCAL &START_ADDR\r\nLOCAL &SIZE\r\nLOCAL &LOG\r\nLOCAL &OFFSET\r\n");
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "&START_ADDR=\"&1\"\r\n&SIZE=\"&2\"\r\n&LOG=\"&RAMDUMPDIR/\"+\"&3\"\r\n");
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sprintf(messages, "&OFFSET=\"&4\"\r\nDATA.LOAD.BINARY &LOG &START_ADDR++&SIZE /LONG /SKIP &4\r\nPRINT %%CONTINUE \" &LOG LOADED.\"\r\nRETURN\r\n");
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));        
+
+			sys_close(file_handle);
+			printk("save_ram_dump load.cmm---\n");
+		}
+		set_fs(oldfs);
+	} else {
+		unsigned char *ptr;
+		char dump_log[64];
+		int file_handle;
+		int ret;
+		mm_segment_t oldfs;
+		char messages[256];
+
+		memset(dump_log, 0, sizeof(dump_log));
+		//ptr = ioremap_nocache(modemsw_segments[0].address,  modemsw_segments[0].size);
+		ptr = ioremap_nocache(modemsw_segments[0].address + ASUSQ6SW_OFFSET,  ASUSQ6SW_BYTES);
+		memcpy(dump_log, ptr, ASUSQ6SW_BYTES);
+		pet_watchdog();
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(messages, "/data/log/modem_crash.log");
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC | O_TRUNC, 0644);
+		if(!IS_ERR((const void *)file_handle))
+		{
+			sprintf(messages, "%s\n", dump_log);
+			ret = sys_write(file_handle, (unsigned char*)messages, strlen(messages));
+			sys_close(file_handle);
+		}
+		set_fs(oldfs);
+		printk("%s\n", dump_log);
+		iounmap(ptr);
 	}
-
-out:
+#endif
+// ASUS_BSP--- Wenli "Modify for modem restart"
 	return ret;
 }
 
@@ -281,7 +447,8 @@ static int __init modem_8960_init(void)
 {
 	int ret;
 
-	if (!cpu_is_msm8960() && !cpu_is_msm8930() && !cpu_is_msm9615())
+	if (!cpu_is_msm8960() && !cpu_is_msm8930() && !cpu_is_msm8930aa() &&
+	    !cpu_is_msm9615() && !cpu_is_msm8627())
 		return -ENODEV;
 
 	ret = smsm_state_cb_register(SMSM_MODEM_STATE, SMSM_RESET,
@@ -336,7 +503,7 @@ static int __init modem_8960_init(void)
 		goto out;
 	}
 
-	smem_ramdump_dev = create_ramdump_device("smem");
+	smem_ramdump_dev = create_ramdump_device("smem-modem");
 
 	if (!smem_ramdump_dev) {
 		pr_err("%s: Unable to create smem ramdump device. (%d)\n",

@@ -24,6 +24,8 @@
 #endif
 #include "power.h"
 
+#include <linux/console.h>      //Ledgeer
+
 enum {
 	DEBUG_EXIT_SUSPEND = 1U << 0,
 	DEBUG_WAKEUP = 1U << 1,
@@ -33,6 +35,8 @@ enum {
 };
 static int debug_mask = DEBUG_EXIT_SUSPEND | DEBUG_WAKEUP;
 module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
+
+const char *active_wake_lock;   //Ledger
 
 #define WAKE_LOCK_TYPE_MASK              (0x0f)
 #define WAKE_LOCK_INITIALIZED            (1U << 8)
@@ -212,7 +216,7 @@ static void expire_wake_lock(struct wake_lock *lock)
 }
 
 /* Caller must acquire the list_lock spinlock */
-static void print_active_locks(int type)
+void print_active_locks(int type)
 {
 	struct wake_lock *lock;
 	bool print_expired = true;
@@ -221,36 +225,74 @@ static void print_active_locks(int type)
 	list_for_each_entry(lock, &active_wake_locks[type], link) {
 		if (lock->flags & WAKE_LOCK_AUTO_EXPIRE) {
 			long timeout = lock->expires - jiffies;
-			if (timeout > 0)
-				pr_info("active wake lock %s, time left %ld\n",
+			if (timeout > 0) {
+				pr_info("[PM]active wake lock %s, time left %ld\n",
 					lock->name, timeout);
+//++Ledger
+                                if (pm_new_state==PM_SUSPEND_MEM)
+                                        ASUSEvtlog("[PM]active wake lock: %s, time left %ld\n", lock->name, timeout);
+//--Ledger
+                        }
 			else if (print_expired)
-				pr_info("wake lock %s, expired\n", lock->name);
+				pr_info("[PM]wake lock %s, expired\n", lock->name);
 		} else {
-			pr_info("active wake lock %s\n", lock->name);
+			pr_info("[PM]active wake lock %s\n", lock->name);
+//++Ledger
+                        active_wake_lock=lock->name;
+                        if (pm_new_state==PM_SUSPEND_MEM)
+                                ASUSEvtlog("[PM]active wake lock: %s\n", lock->name);
+//--Ledger
 			if (!(debug_mask & DEBUG_EXPIRE))
 				print_expired = false;
 		}
 	}
 }
+EXPORT_SYMBOL(print_active_locks);
 
 static long has_wake_lock_locked(int type)
 {
 	struct wake_lock *lock, *n;
 	long max_timeout = 0;
+	long IsPowerManager = 0;//[CY]Add for wakelock workaround
 
 	BUG_ON(type >= WAKE_LOCK_TYPE_COUNT);
 	list_for_each_entry_safe(lock, n, &active_wake_locks[type], link) {
 		if (lock->flags & WAKE_LOCK_AUTO_EXPIRE) {
 			long timeout = lock->expires - jiffies;
-			if (timeout <= 0)
+			if (timeout <= 0) {
 				expire_wake_lock(lock);
-			else if (timeout > max_timeout)
+			}
+			else if (timeout > max_timeout) {
+				//[CY][+++]Modify for wakelock workaround
+				if ((b_is_power_manager_lock==1) && (pm_new_state==PM_SUSPEND_MEM) && (strcmp(lock->name, "PowerManagerService")==0)) {
+					IsPowerManager=1;
+				}
+				//[CY][---]Modify for wakelock workaround
 				max_timeout = timeout;
-		} else
-			return -1;
+			}
+		} 
+		else {
+			//[CY][+++]Modify for wakelock workaroundtimeout
+			if ((b_is_power_manager_lock==1) && (pm_new_state==PM_SUSPEND_MEM) && (strcmp(lock->name, "PowerManagerService")==0)) {
+				IsPowerManager=1;
+			}				
+			else {
+				return -1;
+			}
+			//[CY][---]Modify for wakelock workaround
+		}
 	}
-	return max_timeout;
+	//[CY][+++]Modify for wakelock workaround
+	if (IsPowerManager==1) {
+		pr_info("[PM]Skip wakelock from long-time APP lock\n");
+		ASUSEvtlog("[PM]Force unwakelock \n");
+		IsPowerManager=0;
+		return 0;
+	}
+	else {
+		return max_timeout;
+	}
+	//[CY][---]Modify for wakelock workaround
 }
 
 long has_wake_lock(int type)
@@ -335,6 +377,9 @@ static void suspend_backoff(void)
 	wake_lock_timeout(&suspend_backoff_lock,
 			  msecs_to_jiffies(SUSPEND_BACKOFF_INTERVAL));
 }
+//ASUS_BSP+++ BennyCheng "add none mode switch for use storage case"
+extern void msm_otg_host_power_off(void);
+//ASUS_BSP--- BennyCheng "add none mode switch for use storage case"
 
 static void suspend(struct work_struct *work)
 {
@@ -347,11 +392,15 @@ static void suspend(struct work_struct *work)
 			pr_info("suspend: abort suspend\n");
 		return;
 	}
-
+   //ASUS_BSP+++ BennyCheng "add none mode switch for use storage case"
+   msm_otg_host_power_off();
+   //ASUS_BSP--- BennyCheng "add none mode switch for use storage case"
+   
 	entry_event_num = current_event_num;
 	suspend_sys_sync_queue();
-	if (debug_mask & DEBUG_SUSPEND)
-		pr_info("suspend: enter suspend\n");
+    //[CR] print debug msg
+	//if (debug_mask & DEBUG_SUSPEND)
+		pr_info("[PM]suspend: enter suspend\n");
 	getnstimeofday(&ts_entry);
 	ret = pm_suspend(requested_suspend_state);
 	getnstimeofday(&ts_exit);
@@ -396,8 +445,10 @@ static void expire_wake_locks(unsigned long data)
 	has_lock = has_wake_lock_locked(WAKE_LOCK_SUSPEND);
 	if (debug_mask & DEBUG_EXPIRE)
 		pr_info("expire_wake_locks: done, has_lock %ld\n", has_lock);
-	if (has_lock == 0)
+	if (has_lock == 0) {
+        printk(DBGMSK_PWR_G2 "[PM]expire, start suspend_work\n");
 		queue_work(suspend_work_queue, &suspend_work);
+    }
 	spin_unlock_irqrestore(&list_lock, irqflags);
 }
 static DEFINE_TIMER(expire_timer, expire_wake_locks, 0, 0);
@@ -493,8 +544,9 @@ static void wake_lock_internal(
 	BUG_ON(!(lock->flags & WAKE_LOCK_INITIALIZED));
 #ifdef CONFIG_WAKELOCK_STAT
 	if (type == WAKE_LOCK_SUSPEND && wait_for_wakeup) {
-		if (debug_mask & DEBUG_WAKEUP)
-			pr_info("wakeup wake lock: %s\n", lock->name);
+		if (debug_mask & DEBUG_WAKEUP) {
+			pr_info("wakeup wake lock: %s, %ld, %d\n", lock->name, timeout, has_timeout);
+		}
 		wait_for_wakeup = 0;
 		lock->stat.wakeup_count++;
 	}
@@ -548,8 +600,10 @@ static void wake_lock_internal(
 				if (debug_mask & DEBUG_EXPIRE)
 					pr_info("wake_lock: %s, stop expire timer\n",
 						lock->name);
-			if (expire_in == 0)
+			if (expire_in == 0) {
+                printk(DBGMSK_PWR_G2 "[PM]wakelock_internal, start suspend_work\n");
 				queue_work(suspend_work_queue, &suspend_work);
+            }
 		}
 	}
 	spin_unlock_irqrestore(&list_lock, irqflags);
@@ -593,12 +647,15 @@ void wake_unlock(struct wake_lock *lock)
 				if (debug_mask & DEBUG_EXPIRE)
 					pr_info("wake_unlock: %s, stop expire "
 						"timer\n", lock->name);
-			if (has_lock == 0)
+			if (has_lock == 0) {
+                printk(DBGMSK_PWR_G2 "[PM]wake_unlock: 0 lock, start suspend_work\n");
 				queue_work(suspend_work_queue, &suspend_work);
+            }
 		}
 		if (lock == &main_wake_lock) {
-			if (debug_mask & DEBUG_SUSPEND)
-				print_active_locks(WAKE_LOCK_SUSPEND);
+            //[CR] printf active wakelock while failing to suspend
+			//if (debug_mask & DEBUG_SUSPEND)
+			print_active_locks(WAKE_LOCK_SUSPEND);
 #ifdef CONFIG_WAKELOCK_STAT
 			update_sleep_wait_stats_locked(0);
 #endif

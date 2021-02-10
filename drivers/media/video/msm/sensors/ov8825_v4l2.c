@@ -11,6 +11,7 @@
  *
  */
 
+#include <linux/module.h>
 #include "msm_sensor.h"
 #include "msm.h"
 #define SENSOR_NAME "ov8825"

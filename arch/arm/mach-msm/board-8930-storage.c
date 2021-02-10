@@ -21,6 +21,7 @@
 #include <mach/msm_bus_board.h>
 #include <mach/board.h>
 #include <mach/gpiomux.h>
+#include <mach/socinfo.h>
 #include "devices.h"
 
 #include "board-8930.h"
@@ -66,7 +67,8 @@ static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 		.lpm_sup = 1,
 		.hpm_uA = 800000, /* 800mA */
 		.lpm_uA = 9000,
-	}
+		.reset_at_init = true,
+	},
 };
 
 /* All SDCC controllers may require voting for VDD PAD voltage */
@@ -244,6 +246,7 @@ static struct mmc_platform_data msm8960_sdc1_data = {
 	.pin_data	= &mmc_slot_pin_data[SDCC1],
 	.mpm_sdiowakeup_int = MSM_MPM_PIN_SDC1_DAT1,
 	.msm_bus_voting_data = &sps_to_ddr_bus_voting_data,
+	.uhs_caps2	= MMC_CAP2_HS200_1_8V_SDR,
 };
 #endif
 
@@ -264,7 +267,6 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 #endif
 	.vreg_data	= &mmc_slot_vreg_data[SDCC3],
 	.pin_data	= &mmc_slot_pin_data[SDCC3],
-#ifdef CONFIG_MMC_MSM_CARD_HW_DETECTION
 /*TODO: Insert right replacement for PM8038 */
 #ifndef MSM8930_PHASE_2
 	.status_gpio	= PM8921_GPIO_PM_TO_SYS(26),
@@ -275,7 +277,6 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 #endif
 	.irq_flags	= IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 	.is_status_gpio_active_low = true,
-#endif
 	.xpc_cap	= 1,
 	.uhs_caps	= (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
 			MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_DDR50 |
@@ -302,11 +303,27 @@ void __init msm8930_init_mmc(void)
 	msm_add_sdcc(1, &msm8960_sdc1_data);
 #endif
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
+	/*
+	 * All 8930 platform boards using the 1.2 SoC have been reworked so that
+	 * the sd card detect line's esd circuit is no longer powered by the sd
+	 * card's voltage regulator. So this means we can turn the regulator off
+	 * to save power without affecting the sd card detect functionality.
+	 * This change to the boards will be true for newer versions of the SoC
+	 * as well.
+	 */
+	if ((SOCINFO_VERSION_MAJOR(socinfo_get_version()) >= 1 &&
+			SOCINFO_VERSION_MINOR(socinfo_get_version()) >= 2) ||
+			machine_is_msm8930_cdp()) {
+		msm8960_sdc3_data.vreg_data->vdd_data->always_on = false;
+		msm8960_sdc3_data.vreg_data->vdd_data->reset_at_init = false;
+	}
+
 	/* SDC3: External card slot */
 	if (!machine_is_msm8930_cdp()) {
 		msm8960_sdc3_data.wpswitch_gpio = 0;
 		msm8960_sdc3_data.is_wpswitch_active_low = false;
 	}
+
 	msm_add_sdcc(3, &msm8960_sdc3_data);
 #endif
 }

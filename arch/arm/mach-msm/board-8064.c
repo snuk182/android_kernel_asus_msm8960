@@ -11,6 +11,7 @@
  *
  */
 #include <linux/kernel.h>
+#include <linux/bitops.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/io.h>
@@ -72,6 +73,7 @@
 #include <linux/fmem.h>
 #include <mach/msm_pcie.h>
 #include <mach/restart.h>
+#include <mach/msm_iomap.h>
 
 #include "msm_watchdog.h"
 #include "board-8064.h"
@@ -118,6 +120,13 @@
 #define MAX_FIXED_AREA_SIZE	0x10000000
 #define MSM_MM_FW_SIZE		(0x200000 - HOLE_SIZE)
 #define APQ8064_FW_START	APQ8064_FIXED_AREA_START
+
+#define QFPROM_RAW_FEAT_CONFIG_ROW0_MSB     (MSM_QFPROM_BASE + 0x23c)
+#define QFPROM_RAW_OEM_CONFIG_ROW0_LSB      (MSM_QFPROM_BASE + 0x220)
+
+/* PCIE AXI address space */
+#define PCIE_AXI_BAR_PHYS   0x08000000
+#define PCIE_AXI_BAR_SIZE   SZ_128M
 
 /* PCIe power enable pmic gpio */
 #define PCIE_PWR_EN_PMIC_GPIO 13
@@ -648,6 +657,9 @@ static int apq8064_change_memory_power(u64 start, u64 size,
 
 static char prim_panel_name[PANEL_NAME_MAX_LEN];
 static char ext_panel_name[PANEL_NAME_MAX_LEN];
+
+static int ext_resolution;
+
 static int __init prim_display_setup(char *param)
 {
 	if (strnlen(param, PANEL_NAME_MAX_LEN))
@@ -664,9 +676,18 @@ static int __init ext_display_setup(char *param)
 }
 early_param("ext_display", ext_display_setup);
 
+static int __init hdmi_resulution_setup(char *param)
+{
+	int ret;
+	ret = kstrtoint(param, 10, &ext_resolution);
+	return ret;
+}
+early_param("ext_resolution", hdmi_resulution_setup);
+
 static void __init apq8064_reserve(void)
 {
-	apq8064_set_display_params(prim_panel_name, ext_panel_name);
+	apq8064_set_display_params(prim_panel_name, ext_panel_name,
+		ext_resolution);
 	msm_reserve();
 	if (apq8064_fmem_pdata.size) {
 #if defined(CONFIG_ION_MSM) && defined(CONFIG_MSM_MULTIMEDIA_USE_ION)
@@ -861,7 +882,7 @@ static struct msm_bus_scale_pdata usb_bus_scale_pdata = {
 };
 
 static int phy_init_seq[] = {
-	0x38, 0x81, /* update DC voltage level */
+	0x68, 0x81, /* update DC voltage level */
 	0x24, 0x82, /* set pre-emphasis and rise/fall time */
 	-1
 };
@@ -992,7 +1013,7 @@ static struct wcd9xxx_pdata apq8064_tabla_platform_data = {
 	.micbias = {
 		.ldoh_v = TABLA_LDOH_2P85_V,
 		.cfilt1_mv = 1800,
-		.cfilt2_mv = 1800,
+		.cfilt2_mv = 2700,
 		.cfilt3_mv = 1800,
 		.bias1_cfilt_sel = TABLA_CFILT1_SEL,
 		.bias2_cfilt_sel = TABLA_CFILT2_SEL,
@@ -1059,7 +1080,7 @@ static struct wcd9xxx_pdata apq8064_tabla20_platform_data = {
 	.micbias = {
 		.ldoh_v = TABLA_LDOH_2P85_V,
 		.cfilt1_mv = 1800,
-		.cfilt2_mv = 1800,
+		.cfilt2_mv = 2700,
 		.cfilt3_mv = 1800,
 		.bias1_cfilt_sel = TABLA_CFILT1_SEL,
 		.bias2_cfilt_sel = TABLA_CFILT2_SEL,
@@ -1712,6 +1733,7 @@ static struct mdm_platform_data mdm_platform_data = {
 	.sfr_query = 1,
 	.vddmin_resource = &mdm_vddmin_rscs,
 	.peripheral_platform_device = &apq8064_device_hsic_host,
+	.ramdump_timeout_ms = 120000,
 };
 
 static struct tsens_platform_data apq_tsens_pdata  = {
@@ -2057,12 +2079,22 @@ static struct msm_pcie_gpio_info_t msm_pcie_gpio_info[MSM_PCIE_MAX_GPIO] = {
 
 static struct msm_pcie_platform msm_pcie_platform_data = {
 	.gpio = msm_pcie_gpio_info,
+	.axi_addr = PCIE_AXI_BAR_PHYS,
+	.axi_size = PCIE_AXI_BAR_SIZE,
 };
+
+static int __init mpq8064_pcie_enabled(void)
+{
+	return !((readl_relaxed(QFPROM_RAW_FEAT_CONFIG_ROW0_MSB) & BIT(21)) ||
+		(readl_relaxed(QFPROM_RAW_OEM_CONFIG_ROW0_LSB) & BIT(4)));
+}
 
 static void __init mpq8064_pcie_init(void)
 {
-	msm_device_pcie.dev.platform_data = &msm_pcie_platform_data;
-	platform_device_register(&msm_device_pcie);
+	if (mpq8064_pcie_enabled()) {
+		msm_device_pcie.dev.platform_data = &msm_pcie_platform_data;
+		platform_device_register(&msm_device_pcie);
+	}
 }
 
 static struct platform_device apq8064_device_ext_5v_vreg __devinitdata = {
@@ -2128,7 +2160,7 @@ static struct platform_device *common_not_mpq_devices[] __initdata = {
 };
 
 static struct platform_device *common_devices[] __initdata = {
-	&msm8960_device_acpuclk,
+	&apq8064_device_acpuclk,
 	&apq8064_device_dmov,
 	&apq8064_device_qup_spi_gsbi5,
 	&apq8064_device_ext_5v_vreg,
@@ -2806,6 +2838,8 @@ static void __init register_i2c_devices(void)
 	u8 mach_mask = 0;
 	int i;
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#ifdef CONFIG_IMX074
 #ifdef CONFIG_MSM_CAMERA
 	struct i2c_registry apq8064_camera_i2c_devices = {
 		I2C_SURF | I2C_FFA | I2C_LIQUID | I2C_RUMI,
@@ -2814,6 +2848,8 @@ static void __init register_i2c_devices(void)
 		apq8064_camera_board_info.num_i2c_board_info,
 	};
 #endif
+#endif //end #ifdef CONFIG_IMX074
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	/* Build the matching 'supported_machs' bitmask */
 	if (machine_is_apq8064_cdp())
 		mach_mask = I2C_SURF;
@@ -2837,13 +2873,16 @@ static void __init register_i2c_devices(void)
 						apq8064_i2c_devices[i].info,
 						apq8064_i2c_devices[i].len);
 	}
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#ifdef CONFIG_IMX074
 #ifdef CONFIG_MSM_CAMERA
 	if (apq8064_camera_i2c_devices.machs & mach_mask)
 		i2c_register_board_info(apq8064_camera_i2c_devices.bus,
 			apq8064_camera_i2c_devices.info,
 			apq8064_camera_i2c_devices.len);
 #endif
-
+#endif //end #ifdef CONFIG_IMX074
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	for (i = 0; i < ARRAY_SIZE(mpq8064_i2c_devices); ++i) {
 		if (mpq8064_i2c_devices[i].machs & mach_mask)
 			i2c_register_board_info(
@@ -2915,7 +2954,10 @@ static void __init apq8064_common_init(void)
 		platform_add_devices(common_not_mpq_devices,
 			ARRAY_SIZE(common_not_mpq_devices));
 	enable_ddr3_regulator();
+	msm_hsic_pdata.swfi_latency =
+		msm_rpmrs_levels[0].latency_us;
 	if (machine_is_apq8064_mtp()) {
+		msm_hsic_pdata.log2_irq_thresh = 5,
 		apq8064_device_hsic_host.dev.platform_data = &msm_hsic_pdata;
 		device_initialize(&apq8064_device_hsic_host.dev);
 	}
@@ -2956,6 +2998,7 @@ static void __init apq8064_rumi3_init(void)
 {
 	apq8064_common_init();
 	ethernet_init();
+	msm_rotator_set_split_iommu_domain();
 	platform_add_devices(rumi3_devices, ARRAY_SIZE(rumi3_devices));
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
 }
@@ -2968,10 +3011,12 @@ static void __init apq8064_cdp_init(void)
 	if (machine_is_mpq8064_cdp() || machine_is_mpq8064_hrd() ||
 		machine_is_mpq8064_dtv()) {
 		enable_avc_i2c_bus();
+		msm_rotator_set_split_iommu_domain();
 		platform_add_devices(mpq_devices, ARRAY_SIZE(mpq_devices));
 		mpq8064_pcie_init();
 	} else {
 		ethernet_init();
+		msm_rotator_set_split_iommu_domain();
 		platform_add_devices(cdp_devices, ARRAY_SIZE(cdp_devices));
 		spi_register_board_info(spi_board_info,
 						ARRAY_SIZE(spi_board_info));
@@ -2979,9 +3024,13 @@ static void __init apq8064_cdp_init(void)
 	apq8064_init_fb();
 	apq8064_init_gpu();
 	platform_add_devices(apq8064_footswitch, apq8064_num_footswitch);
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#ifdef CONFIG_IMX074
 #ifdef CONFIG_MSM_CAMERA
 	apq8064_init_cam();
 #endif
+#endif //end #ifdef CONFIG_IMX074
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 
 	if (machine_is_apq8064_cdp() || machine_is_apq8064_liquid())
 		platform_device_register(&cdp_kp_pdev);

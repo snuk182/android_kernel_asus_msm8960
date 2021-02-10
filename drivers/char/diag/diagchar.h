@@ -47,7 +47,7 @@
 #define APPS_PROC		1
 #define QDSP_PROC		2
 #define WCNSS_PROC		3
-#define MSG_MASK_SIZE 9500
+#define MSG_MASK_SIZE 10000
 #define LOG_MASK_SIZE 8000
 #define EVENT_MASK_SIZE 1000
 #define USER_SPACE_DATA 8000
@@ -57,6 +57,11 @@
 #define DIAG_CTRL_MSG_EVENT_MASK	10
 #define DIAG_CTRL_MSG_F3_MASK	11
 #define CONTROL_CHAR	0x7E
+
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+#define DIAG_MODEM_BUFFER_NUM 32
+#define IN_BUF_SIZE_ASUS 32768
+// ASUS_BSP--- Wenli "Improve diag to sd"
 
 /* Maximum number of pkt reg supported at initialization*/
 extern unsigned int diag_max_reg;
@@ -286,6 +291,15 @@ struct diagchar_dev {
 	struct diag_request *usb_read_mdm_ptr;
 	struct diag_request *write_ptr_mdm;
 #endif
+// ASUS_BSP+++ Wenli "Improve diag to sd"
+	int16_t head;
+	int16_t tail;
+	int32_t buf_used;
+	unsigned char *buf_in_3[DIAG_MODEM_BUFFER_NUM];
+	struct diag_request *write_ptr_3[DIAG_MODEM_BUFFER_NUM];
+	int32_t pre_buf_size;
+	bool is_sd_close;
+// ASUS_BSP--- Wenli "Improve diag to sd"
 };
 
 extern struct diagchar_dev *driver;

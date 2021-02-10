@@ -18,7 +18,8 @@
 
 #include <linux/list.h>
 #include <linux/ktime.h>
-
+//add  time_list unattended_timer (10min);
+#define PM_UNATTENDED_TIMEOUT   1000*60*10
 /* A wake_lock prevents the system from entering suspend or other low power
  * states when active. If the type is set to WAKE_LOCK_SUSPEND, the wake_lock
  * prevents a full system suspend. If the type is WAKE_LOCK_IDLE, low power
@@ -58,6 +59,9 @@ void wake_lock_destroy(struct wake_lock *lock);
 void wake_lock(struct wake_lock *lock);
 void wake_lock_timeout(struct wake_lock *lock, long timeout);
 void wake_unlock(struct wake_lock *lock);
+
+//Add a timer to  debug unattended
+void print_active_locks(int type);
 
 /* wake_lock_active returns a non-zero value if the wake_lock is currently
  * locked. If the wake_lock has a timeout, it does not check the timeout

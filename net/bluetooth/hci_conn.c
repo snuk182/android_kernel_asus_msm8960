@@ -376,6 +376,16 @@ static void hci_conn_timeout(unsigned long arg)
 		if (!atomic_read(&conn->refcnt)) {
 			reason = hci_proto_disconn_ind(conn);
 			hci_acl_disconn(conn, reason);
+			//ASUS_BSP+++ ChanceChen "Early delete sco conn"
+			//0x13:Remote User Terminated Connection
+			if(reason == 0x13 && conn->type == SCO_LINK) {
+				BT_DBG("early delete sco conn %p", conn);
+				conn->state = BT_CLOSED;
+				//0x16:Connection Terminated by Local Host
+				hci_proto_disconn_cfm(conn, 0x16, 0);
+				hci_conn_del(conn);
+			}
+			//ASUS_BSP--- ChanceChen "Early delete sco conn"
 		}
 		break;
 	default:
@@ -448,6 +458,8 @@ struct hci_conn *hci_conn_add(struct hci_dev *hdev, int type,
 
 	conn->power_save = 1;
 	conn->disc_timeout = HCI_DISCONN_TIMEOUT;
+	conn->conn_valid = 1;
+	spin_lock_init(&conn->lock);
 	wake_lock_init(&conn->idle_lock, WAKE_LOCK_SUSPEND, "bt_idle");
 
 	switch (type) {
@@ -519,6 +531,10 @@ int hci_conn_del(struct hci_conn *conn)
 	struct hci_dev *hdev = conn->hdev;
 
 	BT_DBG("%s conn %p handle %d", hdev->name, conn, conn->handle);
+
+	spin_lock_bh(&conn->lock);
+	conn->conn_valid = 0; /* conn data is being released */
+	spin_unlock_bh(&conn->lock);
 
 	/* Make sure no timers are running */
 	del_timer(&conn->idle_timer);
@@ -951,6 +967,9 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active)
 	if (test_bit(HCI_RAW, &hdev->flags))
 		return;
 
+	if (conn->type == LE_LINK)
+		return;
+
 	if (conn->mode != HCI_CM_SNIFF)
 		goto timer;
 
@@ -965,9 +984,13 @@ void hci_conn_enter_active_mode(struct hci_conn *conn, __u8 force_active)
 
 timer:
 	if (hdev->idle_timeout > 0) {
-		mod_timer(&conn->idle_timer,
-			jiffies + msecs_to_jiffies(hdev->idle_timeout));
-		wake_lock(&conn->idle_lock);
+		spin_lock_bh(&conn->lock);
+		if (conn->conn_valid && lmp_sniff_capable(conn)) {
+			mod_timer(&conn->idle_timer,
+				jiffies + msecs_to_jiffies(hdev->idle_timeout));
+			wake_lock(&conn->idle_lock);
+		}
+		spin_unlock_bh(&conn->lock);
 	}
 }
 
@@ -1016,6 +1039,9 @@ void hci_conn_enter_sniff_mode(struct hci_conn *conn)
 	BT_DBG("conn %p mode %d", conn, conn->mode);
 
 	if (test_bit(HCI_RAW, &hdev->flags))
+		return;
+
+	if (conn->type == LE_LINK)
 		return;
 
 	if (!lmp_sniff_capable(hdev) || !lmp_sniff_capable(conn))

@@ -79,27 +79,10 @@ struct pm8xxx_ccadc_chip {
 static struct pm8xxx_ccadc_chip *the_chip;
 
 #ifdef DEBUG
-static s64 microvolt_to_ccadc_reading_v1(s64 uv)
-{
-	return div_s64(uv * CCADC_READING_RESOLUTION_D_V1,
-				CCADC_READING_RESOLUTION_N_V1);
-}
-
-static s64 microvolt_to_ccadc_reading_v2(s64 uv)
-{
-	return div_s64(uv * CCADC_READING_RESOLUTION_D_V2,
-				CCADC_READING_RESOLUTION_N_V2);
-}
-
 static s64 microvolt_to_ccadc_reading(struct pm8xxx_ccadc_chip *chip, s64 cc)
 {
-	/*
-	 * resolution (the value of a single bit) was changed after revision 2.0
-	 * for more accurate readings
-	 */
-	return (the_chip->revision < PM8XXX_REVISION_8921_2p0) ?
-				microvolt_to_ccadc_reading_v1((s64)cc) :
-				microvolt_to_ccadc_reading_v2((s64)cc);
+	return div_s64(uv * CCADC_READING_RESOLUTION_D,
+				CCADC_READING_RESOLUTION_N);
 }
 #endif
 
@@ -702,13 +685,13 @@ static int __devinit pm8xxx_ccadc_probe(struct platform_device *pdev)
 		goto free_chip;
 	}
 
-	INIT_DELAYED_WORK(&chip->calib_ccadc_work, calibrate_ccadc_work);
-	schedule_delayed_work(&chip->calib_ccadc_work, 0);
 
 	disable_irq_nosync(chip->eoc_irq);
 
 	platform_set_drvdata(pdev, chip);
 	the_chip = chip;
+	INIT_DELAYED_WORK(&chip->calib_ccadc_work, calibrate_ccadc_work);
+	schedule_delayed_work(&chip->calib_ccadc_work, 0);
 
 	create_debugfs_entries(chip);
 

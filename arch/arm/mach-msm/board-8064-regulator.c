@@ -32,6 +32,7 @@ VREG_CONSUMERS(L2) = {
 	REGULATOR_SUPPLY("mipi_csi_vdd",	"msm_csid.2"),
 	REGULATOR_SUPPLY("lvds_pll_vdda",	"lvds.0"),
 	REGULATOR_SUPPLY("dsi1_pll_vdda",	"mipi_dsi.1"),
+	REGULATOR_SUPPLY("dsi_pll_vdda",	"mdp.0"),
 };
 VREG_CONSUMERS(L3) = {
 	REGULATOR_SUPPLY("8921_l3",		NULL),
@@ -179,11 +180,11 @@ VREG_CONSUMERS(S4) = {
 };
 VREG_CONSUMERS(S5) = {
 	REGULATOR_SUPPLY("8921_s5",		NULL),
-	REGULATOR_SUPPLY("krait0",		NULL),
+	REGULATOR_SUPPLY("krait0",		"acpuclk-8064"),
 };
 VREG_CONSUMERS(S6) = {
 	REGULATOR_SUPPLY("8921_s6",		NULL),
-	REGULATOR_SUPPLY("krait1",		NULL),
+	REGULATOR_SUPPLY("krait1",		"acpuclk-8064"),
 };
 VREG_CONSUMERS(S7) = {
 	REGULATOR_SUPPLY("8921_s7",		NULL),
@@ -221,8 +222,8 @@ VREG_CONSUMERS(LVS7) = {
 	REGULATOR_SUPPLY("8921_lvs7",		NULL),
 	REGULATOR_SUPPLY("pll_vdd",		"pil_riva"),
 	REGULATOR_SUPPLY("lvds_vdda",		"lvds.0"),
-	REGULATOR_SUPPLY("hdmi_pll_fs",		"mdp.0"),
 	REGULATOR_SUPPLY("dsi1_vddio",		"mipi_dsi.1"),
+	REGULATOR_SUPPLY("dsi_pll_vddio",	"mdp.0"),
 	REGULATOR_SUPPLY("hdmi_vdda",		"hdmi_msm.0"),
 };
 VREG_CONSUMERS(USB_OTG) = {
@@ -238,11 +239,11 @@ VREG_CONSUMERS(NCP) = {
 };
 VREG_CONSUMERS(8821_S0) = {
 	REGULATOR_SUPPLY("8821_s0",		NULL),
-	REGULATOR_SUPPLY("krait2",		NULL),
+	REGULATOR_SUPPLY("krait2",		"acpuclk-8064"),
 };
 VREG_CONSUMERS(8821_S1) = {
 	REGULATOR_SUPPLY("8821_s1",		NULL),
-	REGULATOR_SUPPLY("krait3",		NULL),
+	REGULATOR_SUPPLY("krait3",		"acpuclk-8064"),
 };
 VREG_CONSUMERS(EXT_5V) = {
 	REGULATOR_SUPPLY("ext_5v",		NULL),
@@ -256,7 +257,7 @@ VREG_CONSUMERS(EXT_MPP8) = {
 VREG_CONSUMERS(EXT_3P3V) = {
 	REGULATOR_SUPPLY("ext_3p3v",		NULL),
 	REGULATOR_SUPPLY("vdd_io",		"spi0.2"),
-	REGULATOR_SUPPLY("mhl_ext_3p3v",	"msm_otg"),
+	REGULATOR_SUPPLY("mhl_usb_hs_switch",	"msm_otg"),
 	REGULATOR_SUPPLY("lvds_vccs_3p3v",      "lvds.0"),
 	REGULATOR_SUPPLY("dsi1_vccs_3p3v",      "mipi_dsi.1"),
 	REGULATOR_SUPPLY("hdmi_mux_vdd",        "hdmi_msm.0"),
@@ -607,10 +608,38 @@ apq8064_rpm_regulator_init_data[] __devinitdata = {
 int msm8064_pm8921_regulator_pdata_len __devinitdata =
 	ARRAY_SIZE(msm8064_pm8921_regulator_pdata);
 
+#define RPM_REG_MAP(_id, _sleep_also, _voter, _supply, _dev_name) \
+	{ \
+		.vreg_id = RPM_VREG_ID_PM8921_##_id, \
+		.sleep_also = _sleep_also, \
+		.voter = _voter, \
+		.supply = _supply, \
+		.dev_name = _dev_name, \
+	}
+static struct rpm_regulator_consumer_mapping
+	      msm_rpm_regulator_consumer_mapping[] __devinitdata = {
+	RPM_REG_MAP(LVS7, 0, 1, "krait0_hfpll", "acpuclk-8064"),
+	RPM_REG_MAP(LVS7, 0, 2, "krait1_hfpll", "acpuclk-8064"),
+	RPM_REG_MAP(LVS7, 0, 4, "krait2_hfpll", "acpuclk-8064"),
+	RPM_REG_MAP(LVS7, 0, 5, "krait3_hfpll", "acpuclk-8064"),
+	RPM_REG_MAP(LVS7, 0, 6, "l2_hfpll",     "acpuclk-8064"),
+	RPM_REG_MAP(L24,  0, 1, "krait0_mem",   "acpuclk-8064"),
+	RPM_REG_MAP(L24,  0, 2, "krait1_mem",   "acpuclk-8064"),
+	RPM_REG_MAP(L24,  0, 4, "krait2_mem",   "acpuclk-8064"),
+	RPM_REG_MAP(L24,  0, 5, "krait3_mem",   "acpuclk-8064"),
+	RPM_REG_MAP(S3,   0, 1, "krait0_dig",   "acpuclk-8064"),
+	RPM_REG_MAP(S3,   0, 2, "krait1_dig",   "acpuclk-8064"),
+	RPM_REG_MAP(S3,   0, 4, "krait2_dig",   "acpuclk-8064"),
+	RPM_REG_MAP(S3,   0, 5, "krait3_dig",   "acpuclk-8064"),
+};
+
 struct rpm_regulator_platform_data apq8064_rpm_regulator_pdata __devinitdata = {
-	.init_data		= apq8064_rpm_regulator_init_data,
-	.num_regulators		= ARRAY_SIZE(apq8064_rpm_regulator_init_data),
-	.version		= RPM_VREG_VERSION_8960,
-	.vreg_id_vdd_mem	= RPM_VREG_ID_PM8921_L24,
-	.vreg_id_vdd_dig	= RPM_VREG_ID_PM8921_S3,
+	.init_data		  = apq8064_rpm_regulator_init_data,
+	.num_regulators		  = ARRAY_SIZE(apq8064_rpm_regulator_init_data),
+	.version		  = RPM_VREG_VERSION_8960,
+	.vreg_id_vdd_mem	  = RPM_VREG_ID_PM8921_L24,
+	.vreg_id_vdd_dig	  = RPM_VREG_ID_PM8921_S3,
+	.requires_tcxo_workaround = true,
+	.consumer_map		  = msm_rpm_regulator_consumer_mapping,
+	.consumer_map_len = ARRAY_SIZE(msm_rpm_regulator_consumer_mapping),
 };

@@ -151,6 +151,7 @@ struct audio_client {
 
 	atomic_t		cmd_state;
 	atomic_t		time_flag;
+	atomic_t		nowait_cmd_cnt;
 	wait_queue_head_t	cmd_wait;
 	wait_queue_head_t	time_wait;
 
@@ -158,6 +159,7 @@ struct audio_client {
 	void			*priv;
 	uint32_t         io_mode;
 	uint64_t         time_stamp;
+	atomic_t         cmd_response;
 };
 
 void q6asm_audio_client_free(struct audio_client *ac);

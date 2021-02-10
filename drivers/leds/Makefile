@@ -52,6 +52,7 @@ obj-$(CONFIG_LEDS_PMIC8058)		+= leds-pmic8058.o
 obj-$(CONFIG_LEDS_PMIC_MPP)		+= leds-pmic-mpp.o
 obj-$(CONFIG_LEDS_QCIBL)		+= leds-qci-backlight.o
 obj-$(CONFIG_LEDS_MSM_PDM)		+= leds-msm-pdm.o
+obj-$(CONFIG_LEDS_MSM_TRICOLOR)		+= leds-msm-tricolor.o
 
 # LED SPI Drivers
 obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o
@@ -64,3 +65,8 @@ obj-$(CONFIG_LEDS_TRIGGER_BACKLIGHT)	+= ledtrig-backlight.o
 obj-$(CONFIG_LEDS_TRIGGER_GPIO)		+= ledtrig-gpio.o
 obj-$(CONFIG_LEDS_TRIGGER_DEFAULT_ON)	+= ledtrig-default-on.o
 obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
+#ASUS BSP TIM-2011.10.11
+obj-$(CONFIG_A60K_BACKLIGHT)	        += a60k_backlight.o
+obj-$(CONFIG_P02_BACKLIGHT)	        += p02_backlight.o
+obj-$(CONFIG_P02_SCALER_UPDATE)	        += p02_scaler_update.o
+

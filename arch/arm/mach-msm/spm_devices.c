@@ -40,34 +40,27 @@ struct msm_spm_device {
 
 static struct msm_spm_device msm_spm_l2_device;
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct msm_spm_device, msm_cpu_spm_device);
-static atomic_t msm_spm_set_vdd_x_cpu_allowed = ATOMIC_INIT(1);
-
-void msm_spm_allow_x_cpu_set_vdd(bool allowed)
-{
-	atomic_set(&msm_spm_set_vdd_x_cpu_allowed, allowed ? 1 : 0);
-}
-EXPORT_SYMBOL(msm_spm_allow_x_cpu_set_vdd);
 
 int msm_spm_set_vdd(unsigned int cpu, unsigned int vlevel)
 {
-	unsigned long flags;
 	struct msm_spm_device *dev;
 	int ret = -EIO;
-
-	local_irq_save(flags);
-	if (!atomic_read(&msm_spm_set_vdd_x_cpu_allowed) &&
-				unlikely(smp_processor_id() != cpu)) {
-		goto set_vdd_x_cpu_bail;
-	}
 
 	dev = &per_cpu(msm_cpu_spm_device, cpu);
 	ret = msm_spm_drv_set_vdd(&dev->reg_data, vlevel);
 
-set_vdd_x_cpu_bail:
-	local_irq_restore(flags);
 	return ret;
 }
 EXPORT_SYMBOL(msm_spm_set_vdd);
+
+unsigned int msm_spm_get_vdd(unsigned int cpu)
+{
+	struct msm_spm_device *dev;
+
+	dev = &per_cpu(msm_cpu_spm_device, cpu);
+	return msm_spm_drv_get_sts_curr_pmic_data(&dev->reg_data);
+}
+EXPORT_SYMBOL(msm_spm_get_vdd);
 
 static int msm_spm_dev_set_low_power_mode(struct msm_spm_device *dev,
 		unsigned int mode, bool notify_rpm)
@@ -152,7 +145,8 @@ int msm_spm_turn_on_cpu_rail(unsigned int cpu)
 
 	reg = saw_bases[cpu];
 
-	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_apq8064()) {
+	if (cpu_is_msm8960() || cpu_is_msm8930() || cpu_is_msm8930aa() ||
+	    cpu_is_apq8064() || cpu_is_msm8627()) {
 		val = 0xA4;
 		reg += 0x14;
 		timeout = 512;

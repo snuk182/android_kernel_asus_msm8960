@@ -36,7 +36,17 @@ static struct delayed_work cancel_vote_work;
 static void *riva_ramdump_dev;
 static int riva_crash;
 static int ss_restart_inprogress;
-static int enable_riva_ssr;
+static int enable_riva_ssr = 1;
+
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+#ifndef ASUS_SHIP_BUILD
+#include <linux/rtc.h>
+#include <linux/syscalls.h>
+
+extern void pet_watchdog(void);
+extern int asus_rtc_read_time(struct rtc_time *tm);
+#endif
+// ASUS_BSP--- Wenli "Modify for modem restart"
 
 static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 					uint32_t new_state)
@@ -58,6 +68,8 @@ static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 						MODULE_NAME);
 		return;
 	}
+
+    pr_info(MODULE_NAME ": smsm_state_cb_hdlr, enable_riva_ssr=%d.\n", enable_riva_ssr);
 
 	if (!enable_riva_ssr)
 		panic(MODULE_NAME ": SMSM reset request received from Riva");
@@ -88,7 +100,11 @@ static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 
 static irqreturn_t riva_wdog_bite_irq_hdlr(int irq, void *dev_id)
 {
+    pr_info(MODULE_NAME ": riva_wdog_bite_irq_hdlr, enable_riva_ssr=%d.\n", enable_riva_ssr);
+
 	riva_crash = true;
+
+    pr_info(MODULE_NAME ": riva_wdog_bite_irq_hdlr.\n");
 
 	if (ss_restart_inprogress) {
 		pr_err("%s: Ignoring riva bite irq, restart in progress\n",
@@ -108,6 +124,8 @@ static irqreturn_t riva_wdog_bite_irq_hdlr(int irq, void *dev_id)
 /* SMSM reset Riva */
 static void smsm_riva_reset(void)
 {
+    pr_info(MODULE_NAME ": smsm_riva_reset, smsm_change_state(SMSM_APPS_STATE, SMSM_RESET, SMSM_RESET).\n");
+
 	/* per SS reset request bit is not available now,
 	 * all SS host modules are setting this bit
 	 * This is still under discussion*/
@@ -119,7 +137,8 @@ static void riva_post_bootup(struct work_struct *work)
 	struct platform_device *pdev = wcnss_get_platform_device();
 	struct wcnss_wlan_config *pwlanconfig = wcnss_get_wlan_config();
 
-	pr_debug(MODULE_NAME ": Cancel APPS vote for Iris & Riva\n");
+	pr_debug(MODULE_NAME ": riva_post_bootup, Cancel APPS vote for Iris & Riva\n");
+
 
 	wcnss_wlan_power(&pdev->dev, pwlanconfig,
 		WCNSS_WLAN_SWITCH_OFF);
@@ -128,6 +147,7 @@ static void riva_post_bootup(struct work_struct *work)
 /* Subsystem handlers */
 static int riva_shutdown(const struct subsys_data *subsys)
 {
+    pr_info(MODULE_NAME ": riva_shutdown.\n");
 	pil_force_shutdown("wcnss");
 	flush_delayed_work(&cancel_vote_work);
 	disable_irq_nosync(RIVA_APSS_WDOG_BITE_RESET_RDY_IRQ);
@@ -140,6 +160,8 @@ static int riva_powerup(const struct subsys_data *subsys)
 	struct platform_device *pdev = wcnss_get_platform_device();
 	struct wcnss_wlan_config *pwlanconfig = wcnss_get_wlan_config();
 	int    ret = -1;
+
+    pr_info(MODULE_NAME ": riva_powerup.\n");
 
 	if (pdev && pwlanconfig)
 		ret = wcnss_wlan_power(&pdev->dev, pwlanconfig,
@@ -158,20 +180,57 @@ static int riva_powerup(const struct subsys_data *subsys)
 	return ret;
 }
 
-/* RAM segments for Riva SS;
- * We don't specify the full 5MB allocated for Riva. Only 3MB is specified */
+#ifndef ASUS_SHIP_BUILD
+/* 5MB RAM segments for Riva SS */
 static struct ramdump_segment riva_segments[] = {{0x8f200000,
-						0x8f500000 - 0x8f200000} };
+						0x8f700000 - 0x8f200000} };
+#endif
 
 static int riva_ramdump(int enable, const struct subsys_data *subsys)
 {
+	int ret = 0;
+// ASUS_BSP+++ Wenli "Modify for modem restart"
+#ifndef ASUS_SHIP_BUILD
+    pr_info(MODULE_NAME ": riva_ramdump.\n");
 	pr_debug("%s: enable[%d]\n", MODULE_NAME, enable);
-	if (enable)
-		return do_ramdump(riva_ramdump_dev,
-				riva_segments,
-				ARRAY_SIZE(riva_segments));
-	else
-		return 0;
+	if (enable) {
+		int file_handle;
+		int ret;
+		struct rtc_time tm;
+		unsigned char *ptr;
+		mm_segment_t oldfs;
+		char dump_dir[256];
+		char messages[256];
+
+		asus_rtc_read_time(&tm);
+
+		pet_watchdog();
+		ptr = ioremap_nocache(riva_segments[0].address,  riva_segments[0].size);
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		sprintf(dump_dir, "/data/log/RAMDump_%04d%02d%02d-%02d%02d%02d",
+				tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+		file_handle = sys_mkdir(dump_dir, 0755);
+		if(IS_ERR((const void *)file_handle))
+		{
+			printk("mkdir %s fail\n", dump_dir);
+		}
+		sprintf(messages, "%s/riva.bin", dump_dir);
+		file_handle = sys_open(messages, O_CREAT|O_WRONLY|O_SYNC, 0644);
+
+		if(!IS_ERR((const void *)file_handle))
+		{
+			printk("save_ram_dump riva+++\n");
+			ret = sys_write(file_handle, (unsigned char*)ptr, riva_segments[0].size);
+			sys_close(file_handle);
+			printk("save_ram_dump riva---\n");
+		}
+		set_fs(oldfs);
+		iounmap(ptr);
+	}
+#endif
+// ASUS_BSP--- Wenli "Modify for modem restart"
+	return ret;
 }
 
 /* Riva crash handler */
@@ -194,6 +253,10 @@ static int enable_riva_ssr_set(const char *val, struct kernel_param *kp)
 {
 	int ret;
 
+    if( val ) {
+        pr_info(MODULE_NAME ": enable_riva_ssr_set, (%s).\n", val);
+    }
+
 	ret = param_set_int(val, kp);
 	if (ret)
 		return ret;
@@ -209,12 +272,16 @@ module_param_call(enable_riva_ssr, enable_riva_ssr_set, param_get_int,
 
 static int __init riva_restart_init(void)
 {
+    pr_info(MODULE_NAME ": riva_restart_init, ssr_register_subsystem().\n");
+
 	return ssr_register_subsystem(&riva_8960);
 }
 
 static int __init riva_ssr_module_init(void)
 {
 	int ret;
+
+    pr_info(MODULE_NAME ": riva_ssr_module_init +.\n");
 
 	ret = smsm_state_cb_register(SMSM_WCNSS_STATE, SMSM_RESET,
 					smsm_state_cb_hdlr, 0);
@@ -249,12 +316,17 @@ static int __init riva_ssr_module_init(void)
 
 	pr_info("%s: module initialized\n", MODULE_NAME);
 out:
+    pr_info(MODULE_NAME ": riva_ssr_module_init -.\n");
 	return ret;
 }
 
 static void __exit riva_ssr_module_exit(void)
 {
+    pr_info(MODULE_NAME ": riva_ssr_module_exit +.\n");
+
 	free_irq(RIVA_APSS_WDOG_BITE_RESET_RDY_IRQ, NULL);
+
+    pr_info(MODULE_NAME ": riva_ssr_module_exit -.\n");
 }
 
 module_init(riva_ssr_module_init);

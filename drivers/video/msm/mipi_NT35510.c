@@ -482,26 +482,31 @@ static int mipi_nt35510_lcd_on(struct platform_device *pdev)
 
 	mipi  = &mfd->panel_info.mipi;
 
+	if (!mfd->cont_splash_done) {
+		mfd->cont_splash_done = 1;
+		return 0;
+	}
+
 	if (mipi_nt35510_pdata && mipi_nt35510_pdata->rotate_panel)
 		rotate = mipi_nt35510_pdata->rotate_panel();
 
 	if (mipi->mode == DSI_VIDEO_MODE) {
-		mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+		mipi_dsi_cmds_tx(&nt35510_tx_buf,
 			nt35510_video_display_on_cmds,
 			ARRAY_SIZE(nt35510_video_display_on_cmds));
 
 		if (rotate) {
-			mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+			mipi_dsi_cmds_tx(&nt35510_tx_buf,
 				nt35510_video_display_on_cmds_rotate,
 			ARRAY_SIZE(nt35510_video_display_on_cmds_rotate));
 		}
 	} else if (mipi->mode == DSI_CMD_MODE) {
-		mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+		mipi_dsi_cmds_tx(&nt35510_tx_buf,
 			nt35510_cmd_display_on_cmds,
 			ARRAY_SIZE(nt35510_cmd_display_on_cmds));
 
 		if (rotate) {
-			mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf,
+			mipi_dsi_cmds_tx(&nt35510_tx_buf,
 				nt35510_cmd_display_on_cmds_rotate,
 			ARRAY_SIZE(nt35510_cmd_display_on_cmds_rotate));
 		}
@@ -523,7 +528,7 @@ static int mipi_nt35510_lcd_off(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	mipi_dsi_cmds_tx(mfd, &nt35510_tx_buf, nt35510_display_off_cmds,
+	mipi_dsi_cmds_tx(&nt35510_tx_buf, nt35510_display_off_cmds,
 			ARRAY_SIZE(nt35510_display_off_cmds));
 
 	pr_debug("mipi_nt35510_lcd_off X\n");
@@ -587,6 +592,7 @@ static int mipi_nt35510_create_sysfs(struct platform_device *pdev)
 static int __devinit mipi_nt35510_lcd_probe(struct platform_device *pdev)
 {
 	struct platform_device *pthisdev = NULL;
+	struct msm_fb_panel_data *pdata;
 	pr_debug("%s\n", __func__);
 
 	if (pdev->id == 0) {
@@ -595,6 +601,11 @@ static int __devinit mipi_nt35510_lcd_probe(struct platform_device *pdev)
 			spin_lock_init(&mipi_nt35510_pdata->bl_spinlock);
 		return 0;
 	}
+
+	pdata = pdev->dev.platform_data;
+	if (mipi_nt35510_pdata && mipi_nt35510_pdata->rotate_panel()
+			&& pdata->panel_info.type == MIPI_CMD_PANEL)
+		pdata->panel_info.lcd.refx100 = 6200;
 
 	pthisdev = msm_fb_add_device(pdev);
 	mipi_nt35510_create_sysfs(pthisdev);

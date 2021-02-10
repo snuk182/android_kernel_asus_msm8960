@@ -18,6 +18,7 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
+#if 0	// +++ ASUS_BSP : miniporting
 /* DSI_BIT_CLK at 500MHz, 2 lane, RGB888 */
 		{0x03, 0x01, 0x01, 0x00},	/* regulator */
 		/* timing   */
@@ -33,6 +34,22 @@ static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
 		0x30, 0x07, 0x07,
 #endif
 		0x05, 0x14, 0x03, 0x0, 0x0, 0x54, 0x06, 0x10, 0x04, 0x0},
+#else
+    /* regulator */
+    {0x03, 0x0a, 0x04, 0x00, 0x20},
+    /* timing   */
+
+    {0xB4, 0x8D, 0x1D, 0x00, 0x20, 0x94, 0x20,
+    0x8F, 0x20, 0x03, 0x04, 0xa0},
+    /* phy ctrl */
+    {0x5f, 0x00, 0x00, 0x10},
+    /* strength */
+    {0xff, 0x00, 0x06, 0x00},
+    /* pll control */
+    {0x0, 0x7f, 0x1, 0x1a, 0x00, 0x50, 0x48, 0x63,
+    0x41, 0x0f, 0x01,
+    0x00, 0x14, 0x03, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01 },
+#endif// --- ASUS_BSP : miniporting
 };
 
 static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
@@ -61,7 +78,7 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 	pinfo.bl_min = 1;
 	pinfo.fb_num = 2;
 	pinfo.clk_rate = 454000000;
-	pinfo.is_3d_panel = FB_TYPE_3D_PANEL;
+	//pinfo.is_3d_panel = FB_TYPE_3D_PANEL;// +++ ASUS_BSP : miniporting
 	pinfo.lcd.vsync_enable = TRUE;
 	pinfo.lcd.hw_vsync_mode = TRUE;
 	pinfo.lcd.refx100 = 6000; /* adjust refx100 to prevent tearing */
@@ -88,6 +105,10 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 	pinfo.mipi.wr_mem_continue = 0x3c;
 	pinfo.mipi.wr_mem_start = 0x2c;
 	pinfo.mipi.dsi_phy_db = &dsi_cmd_mode_phy_db;
+// ASUS_BSP +++ Tingyi "Allocate different buffers for panel and HDMI"
+    pinfo.mode2_xres = 1280;
+    pinfo.mode2_yres = 960;
+// ASUS_BSP --- Tingyi "Allocate different buffers for panel and HDMI"
 
 	ret = mipi_novatek_device_register(&pinfo, MIPI_DSI_PRIM,
 						MIPI_DSI_PANEL_QHD_PT);

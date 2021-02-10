@@ -354,6 +354,7 @@ struct mmc_host {
 #endif
 
 	struct mmc_ios saved_ios;
+	int			pdev_id;		/* ASUS_BSP+++: Fix eMMC halt in Reliable Write */
 	unsigned long		private[0] ____cacheline_aligned;
 };
 

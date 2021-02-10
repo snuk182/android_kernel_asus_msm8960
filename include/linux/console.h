@@ -181,4 +181,10 @@ void vcs_remove_sysfs(int index);
 extern bool vgacon_text_force(void);
 #endif
 
+//++Ledger
+extern const char *active_wake_lock;
+extern int pm_new_state, gpio_irq_cnt, gpio_resume_irq[], gic_irq_cnt, gic_resume_irq[];
+extern unsigned int pwrcs_time;      //Ledger
+//--Ledger
+
 #endif /* _LINUX_CONSOLE_H */

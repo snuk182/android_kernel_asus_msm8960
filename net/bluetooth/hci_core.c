@@ -51,6 +51,7 @@
 
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
+#include <linux/asusdebug.h>
 
 #define AUTO_OFF_TIMEOUT 2000
 
@@ -993,6 +994,7 @@ static void hci_power_on(struct work_struct *work)
 	int err;
 
 	BT_DBG("%s", hdev->name);
+	ASUSEvtlog("[BT]POWERON\n");
 
 	err = hci_dev_open(hdev->id);
 	if (err && err != -EALREADY)
@@ -1013,6 +1015,7 @@ static void hci_power_off(struct work_struct *work)
 	struct hci_dev *hdev = container_of(work, struct hci_dev, power_off);
 
 	BT_DBG("%s", hdev->name);
+	ASUSEvtlog("[BT]POWEROFF\n");
 
 	hci_dev_close(hdev->id);
 }

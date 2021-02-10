@@ -35,7 +35,6 @@
 #include <linux/syscalls.h>
 #include <linux/hrtimer.h>
 #include <linux/ion.h>
-
 #include <mach/cpuidle.h>
 DEFINE_MUTEX(ctrl_cmd_lock);
 
@@ -314,7 +313,7 @@ static int msm_pmem_table_add(struct hlist_head *ptype,
 	if (!region)
 		goto out;
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
-		region->handle = ion_import_fd(client_for_ion, info->fd);
+		region->handle = ion_import_dma_buf(client_for_ion, info->fd);
 		if (IS_ERR_OR_NULL(region->handle))
 			goto out1;
 		ion_phys(client_for_ion, region->handle,
@@ -3962,7 +3961,7 @@ static int msm_sync_init(struct msm_sync *sync,
 	msm_queue_init(&sync->vpe_q, "vpe");
 
 	pm_qos_add_request(&sync->idle_pm_qos, PM_QOS_CPU_DMA_LATENCY,
-					   PM_QOS_DEFAULT_VALUE);
+		PM_QOS_DEFAULT_VALUE);
 
 	rc = msm_camio_probe_on(pdev);
 	if (rc < 0) {

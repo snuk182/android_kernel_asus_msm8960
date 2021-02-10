@@ -853,15 +853,19 @@ static void bam_output_register_content(void *base)
 					BAM_TESTBUS_SEL));
 	}
 
+#ifdef CONFIG_DEBUG_FS
 	print_bam_reg(base);
+#endif
 
 	num_pipes = bam_read_reg_field(base, NUM_PIPES,
 					BAM_NUM_PIPES);
 	SPS_INFO("sps:bam 0x%x(va) has %d pipes.",
 			(u32) base, num_pipes);
 
+#ifdef CONFIG_DEBUG_FS
 	for (i = 0; i < num_pipes; i++)
 		print_bam_pipe_reg(base, i);
+#endif
 
 }
 

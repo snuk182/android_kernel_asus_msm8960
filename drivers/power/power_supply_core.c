@@ -76,10 +76,27 @@ int power_supply_set_scope(struct power_supply *psy, int scope)
 	if (psy->set_property)
 		return psy->set_property(psy, POWER_SUPPLY_PROP_SCOPE,
 								&ret);
-
 	return -ENXIO;
 }
 EXPORT_SYMBOL_GPL(power_supply_set_scope);
+
+/**
+ * power_supply_set_supply_type - set type of the power supply
+ * @psy:	the power supply to control
+ * @supply_type:	sets type property of power supply
+ */
+int power_supply_set_supply_type(struct power_supply *psy,
+				enum power_supply_type supply_type)
+{
+	const union power_supply_propval ret = {supply_type,};
+
+	if (psy->set_property)
+		return psy->set_property(psy, POWER_SUPPLY_PROP_TYPE,
+								&ret);
+
+	return -ENXIO;
+}
+EXPORT_SYMBOL_GPL(power_supply_set_supply_type);
 
 /**
  * power_supply_set_charge_type - set charge type of the power supply
@@ -143,7 +160,13 @@ void power_supply_changed(struct power_supply *psy)
 	unsigned long flags;
 
 	dev_dbg(psy->dev, "%s\n", __func__);
-
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+#ifdef CONFIG_BATTERY_ASUS_DBG
+	pr_info("[BAT]%s() by %s \r\n ", __func__, psy->name);
+	dump_stack();
+	pr_info("**************************************\r\n");
+#endif /* CONFIG_BATTERY_ASUS_DBG */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	spin_lock_irqsave(&psy->changed_lock, flags);
 	psy->changed = true;
 	wake_lock(&psy->work_wake_lock);

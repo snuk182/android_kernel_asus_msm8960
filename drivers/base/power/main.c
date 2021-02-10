@@ -33,6 +33,12 @@
 #include "../base.h"
 #include "power.h"
 
+// [ASUS][PM][+++] CY add for power debug
+#include <linux/string.h>
+#include <linux/delay.h>
+static bool bIsASUSMSKSet=0;
+static int intTotalTime;
+// [ASUS][PM][---] CY add for power debug
 typedef int (*pm_callback_t)(struct device *);
 
 /*
@@ -95,6 +101,26 @@ void device_pm_unlock(void)
 {
 	mutex_unlock(&dpm_list_mtx);
 }
+// [ASUS][PM][+++] CY add for power debug
+static void module_show_time(ktime_t starttime)
+{
+	ktime_t calltime;
+	u64 usecs64;
+	int usecs;
+
+	calltime = ktime_get();
+	usecs64 = ktime_to_ns(ktime_sub(calltime, starttime));
+	do_div(usecs64, NSEC_PER_USEC);
+	usecs = usecs64;
+	if (usecs == 0)
+		usecs = 1;
+	if (bIsASUSMSKSet==1)
+	{
+		printk(DBGMSK_PWR_G3 "  [PM]cost:%ld.%03ld msecs\n", usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
+		intTotalTime = intTotalTime + usecs;
+	}
+}
+// [ASUS][PM][---] CY add for power debug
 
 /**
  * device_pm_add - Add a device to the PM core's list of active devices.
@@ -179,7 +205,14 @@ static ktime_t initcall_debug_start(struct device *dev)
 			dev->parent ? dev_name(dev->parent) : "none");
 		calltime = ktime_get();
 	}
-
+	
+	// [ASUS][PM][+++] CY add for power debug
+	if (bIsASUSMSKSet==1)
+	{
+		calltime = ktime_get();
+	}
+	// [ASUS][PM][---] CY add for power debug
+	
 	return calltime;
 }
 
@@ -194,6 +227,13 @@ static void initcall_debug_report(struct device *dev, ktime_t calltime,
 		pr_info("call %s+ returned %d after %Ld usecs\n", dev_name(dev),
 			error, (unsigned long long)ktime_to_ns(delta) >> 10);
 	}
+	// [ASUS][PM][+++] CY add for power debug
+	if (bIsASUSMSKSet==1)
+	{
+		module_show_time(calltime);
+		printk(DBGMSK_PWR_G3 " [PM]%s --\n", dev_name(dev));
+	}
+	// [ASUS][PM][---] CY add for power debug
 }
 
 /**
@@ -357,6 +397,7 @@ static void pm_dev_err(struct device *dev, pm_message_t state, char *info,
 {
 	printk(KERN_ERR "PM: Device %s failed to %s%s: error %d\n",
 		dev_name(dev), pm_verb(state.event), info, error);
+	ASUSEvtlog("[PM]: Device %s failed to %s%s: error %d\n",dev_name(dev),pm_verb(state.event),info,error); //austin
 }
 
 static void dpm_show_time(ktime_t starttime, pm_message_t state, char *info)
@@ -492,6 +533,10 @@ static int device_resume_early(struct device *dev, pm_message_t state)
 	TRACE_DEVICE(dev);
 	TRACE_RESUME(0);
 
+	// [ASUS][PM][+++] CY add for power debug
+	if (bIsASUSMSKSet==1)
+		printk(DBGMSK_PWR_G3 " [PM]%s ++\n", dev_name(dev));
+	// [ASUS][PM][---] CY add for power debug
 	if (dev->pm_domain) {
 		info = "early power domain ";
 		callback = pm_late_early_op(&dev->pm_domain->ops, state);
@@ -571,7 +616,6 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 	pm_callback_t callback = NULL;
 	char *info = NULL;
 	int error = 0;
-	bool put = false;
 
 	TRACE_DEVICE(dev);
 	TRACE_RESUME(0);
@@ -589,7 +633,6 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 		goto Unlock;
 
 	pm_runtime_enable(dev);
-	put = true;
 
 	if (dev->pm_domain) {
 		info = "power domain ";
@@ -641,9 +684,6 @@ static int device_resume(struct device *dev, pm_message_t state, bool async)
 	complete_all(&dev->power.completion);
 
 	TRACE_RESUME(error);
-
-	if (put)
-		pm_runtime_put_sync(dev);
 
 	return error;
 }
@@ -707,6 +747,7 @@ void dpm_resume(pm_message_t state)
 	pm_transition = state;
 	async_error = 0;
 
+	printk(DBGMSK_PWR_G0 "[PM][+++] resume callback loop\n");//[ASUS] CY add for Power debug
 	list_for_each_entry(dev, &dpm_suspended_list, power.entry) {
 		INIT_COMPLETION(dev->power.completion);
 		if (is_async(dev)) {
@@ -715,6 +756,7 @@ void dpm_resume(pm_message_t state)
 		}
 	}
 
+	intTotalTime =0;//[ASUS] CY add for Power debug
 	while (!list_empty(&dpm_suspended_list)) {
 		dev = to_device(dpm_suspended_list.next);
 		get_device(dev);
@@ -739,6 +781,11 @@ void dpm_resume(pm_message_t state)
 	}
 	mutex_unlock(&dpm_list_mtx);
 	async_synchronize_full();
+	// [ASUS][PM][+++] CY add for power debug
+	if (bIsASUSMSKSet)
+		printk(DBGMSK_PWR_G3 " [PM]Total cost by drivers:%ld.%03ld msecs\n", intTotalTime / USEC_PER_MSEC, intTotalTime % USEC_PER_MSEC);
+	printk(DBGMSK_PWR_G0 "[PM][---] resume callback loop\n");
+	// [ASUS][PM][---] CY add for power debug
 	dpm_show_time(starttime, state, NULL);
 }
 
@@ -779,6 +826,8 @@ static void device_complete(struct device *dev, pm_message_t state)
 	}
 
 	device_unlock(dev);
+
+	pm_runtime_put_sync(dev);
 }
 
 /**
@@ -1010,8 +1059,16 @@ static int dpm_suspend_late(pm_message_t state)
 int dpm_suspend_end(pm_message_t state)
 {
 	int error = dpm_suspend_late(state);
+	if (error)
+		return error;
 
-	return error ? : dpm_suspend_noirq(state);
+	error = dpm_suspend_noirq(state);
+	if (error) {
+		dpm_resume_early(state);
+		return error;
+	}
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(dpm_suspend_end);
 
@@ -1027,6 +1084,11 @@ static int legacy_suspend(struct device *dev, pm_message_t state,
 	int error;
 	ktime_t calltime;
 
+	// [ASUS][PM][+++] CY add for power debug
+	if (bIsASUSMSKSet==1)
+		printk(DBGMSK_PWR_G3 " [PM]%s ++\n", dev_name(dev));
+	// [ASUS][PM][---] CY add for power debug
+	
 	calltime = initcall_debug_start(dev);
 
 	error = cb(dev, state);
@@ -1056,12 +1118,16 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	if (async_error)
 		return 0;
 
-	pm_runtime_get_noresume(dev);
+	/*
+	 * If a device configured to wake up the system from sleep states
+	 * has been suspended at run time and there's a resume request pending
+	 * for it, this is equivalent to the device signaling wakeup, so the
+	 * system suspend operation should be aborted.
+	 */
 	if (pm_runtime_barrier(dev) && device_may_wakeup(dev))
 		pm_wakeup_event(dev, 0);
 
 	if (pm_wakeup_pending()) {
-		pm_runtime_put_sync(dev);
 		async_error = -EBUSY;
 		return 0;
 	}
@@ -1135,7 +1201,6 @@ static int __device_suspend(struct device *dev, pm_message_t state, bool async)
 	complete_all(&dev->power.completion);
 
 	if (error) {
-		pm_runtime_put_sync(dev);
 		async_error = error;
 	} else if (dev->power.is_suspended) {
 		__pm_runtime_disable(dev, false);
@@ -1185,6 +1250,13 @@ int dpm_suspend(pm_message_t state)
 	mutex_lock(&dpm_list_mtx);
 	pm_transition = state;
 	async_error = 0;
+
+	// [ASUS][PM][+++] CY add for power debug
+	printk(DBGMSK_PWR_G0 "[PM][+++] suspend callback loop\n");
+	bIsASUSMSKSet = isASUS_MSK_set(DBGMSK_PWR_G3);
+	intTotalTime =0;
+	// [ASUS][PM][---] CY add for power debug
+	
 	while (!list_empty(&dpm_prepared_list)) {
 		struct device *dev = to_device(dpm_prepared_list.prev);
 
@@ -1208,6 +1280,16 @@ int dpm_suspend(pm_message_t state)
 	}
 	mutex_unlock(&dpm_list_mtx);
 	async_synchronize_full();
+
+	// [ASUS][PM][+++] CY add for power debug
+	if (!error)
+	{
+		if (bIsASUSMSKSet)
+			printk(DBGMSK_PWR_G3 " [PM]Total cost by drivers:%ld.%03ld msecs\n", intTotalTime / USEC_PER_MSEC, intTotalTime % USEC_PER_MSEC);
+	}
+	printk(DBGMSK_PWR_G0 "[PM][---] suspend callback loop\n");
+	// [ASUS][PM][---] CY add for power debug
+	
 	if (!error)
 		error = async_error;
 	if (error) {
@@ -1231,6 +1313,15 @@ static int device_prepare(struct device *dev, pm_message_t state)
 	int (*callback)(struct device *) = NULL;
 	char *info = NULL;
 	int error = 0;
+
+	/*
+	 * If a device's parent goes into runtime suspend at the wrong time,
+	 * it won't be possible to resume the device.  To prevent this we
+	 * block runtime suspend here, during the prepare phase, and allow
+	 * it again during the complete phase.
+	 */
+
+	pm_runtime_get_noresume(dev);
 
 	device_lock(dev);
 

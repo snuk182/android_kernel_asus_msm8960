@@ -147,7 +147,7 @@ static int msm_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 				    bool dapm);
 
 static struct tabla_mbhc_config mbhc_cfg = {
-	.headset_jack = &hs_jack,
+	//.headset_jack = &hs_jack,
 	.button_jack = &button_jack,
 	.read_fw_bin = false,
 	.calibration = NULL,
@@ -599,7 +599,7 @@ static const struct snd_kcontrol_new tabla_msm_controls[] = {
 static void *def_tabla_mbhc_cal(void)
 {
 	void *tabla_cal;
-	struct tabla_mbhc_btn_detect_cfg *btn_cfg;
+	//struct tabla_mbhc_btn_detect_cfg *btn_cfg;
 	u16 *btn_low, *btn_high;
 	u8 *n_ready, *n_cic, *gain;
 
@@ -641,9 +641,9 @@ static void *def_tabla_mbhc_cal(void)
 	S(v_btn_press_delta_sta, 100);
 	S(v_btn_press_delta_cic, 50);
 #undef S
-	btn_cfg = TABLA_MBHC_CAL_BTN_DET_PTR(tabla_cal);
-	btn_low = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_LOW);
-	btn_high = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_HIGH);
+	//btn_cfg = TABLA_MBHC_CAL_BTN_DET_PTR(tabla_cal);
+	//btn_low = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_LOW);
+	//btn_high = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_V_BTN_HIGH);
 	btn_low[0] = -50;
 	btn_high[0] = 10;
 	btn_low[1] = 11;
@@ -660,13 +660,13 @@ static void *def_tabla_mbhc_cal(void)
 	btn_high[6] = 163;
 	btn_low[7] = 164;
 	btn_high[7] = 250;
-	n_ready = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_READY);
+	//n_ready = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_READY);
 	n_ready[0] = 48;
 	n_ready[1] = 38;
-	n_cic = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_CIC);
+	//n_cic = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_N_CIC);
 	n_cic[0] = 60;
 	n_cic[1] = 47;
-	gain = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_GAIN);
+	//gain = tabla_mbhc_cal_btn_det_mp(btn_cfg, TABLA_BTN_DET_GAIN);
 	gain[0] = 11;
 	gain[1] = 9;
 

@@ -57,6 +57,7 @@ struct pil_device {
 	struct delayed_work proxy;
 	struct wake_lock wlock;
 	char wake_name[32];
+	bool is_opened;
 };
 
 #define to_pil_device(d) container_of(d, struct pil_device, dev)
@@ -114,11 +115,15 @@ static void pil_proxy_work(struct work_struct *work)
 
 static int pil_proxy_vote(struct pil_device *pil)
 {
+	int ret = 0;
+
 	if (pil->desc->ops->proxy_vote) {
 		wake_lock(&pil->wlock);
-		return pil->desc->ops->proxy_vote(pil->desc);
+		ret = pil->desc->ops->proxy_vote(pil->desc);
+		if (ret)
+			wake_unlock(&pil->wlock);
 	}
-	return 0;
+	return ret;
 }
 
 static void pil_proxy_unvote(struct pil_device *pil, unsigned long timeout)
@@ -226,7 +231,7 @@ release_fw:
 
 static int segment_is_loadable(const struct elf32_phdr *p)
 {
-	return (p->p_type & PT_LOAD) && !segment_is_hash(p->p_flags);
+	return (p->p_type == PT_LOAD) && !segment_is_hash(p->p_flags);
 }
 
 /* Sychronize request_firmware() with suspend */
@@ -364,13 +369,14 @@ void *pil_get(const char *name)
 	}
 
 	mutex_lock(&pil->lock);
-	if (!pil->count) {
+	if (!pil->is_opened) {
 		ret = load_image(pil);
 		if (ret) {
 			retval = ERR_PTR(ret);
 			goto err_load;
 		}
 	}
+	pil->is_opened = true;
 	pil->count++;
 	pil_set_state(pil, PIL_ONLINE);
 	mutex_unlock(&pil->lock);
@@ -556,7 +562,7 @@ static void msm_pil_debugfs_remove(struct pil_device *pil)
 }
 #else
 static int __init msm_pil_debugfs_init(void) { return 0; };
-static void __exit msm_pil_debugfs_exit(void) { return 0; };
+static void __exit msm_pil_debugfs_exit(void) { return; };	//ASUS_BSP: fix for miniporting++
 static int msm_pil_debugfs_add(struct pil_device *pil) { return 0; }
 static void msm_pil_debugfs_remove(struct pil_device *pil) { }
 #endif
@@ -602,6 +608,7 @@ struct pil_device *msm_pil_register(struct pil_desc *desc)
 
 	mutex_init(&pil->lock);
 	pil->desc = desc;
+	pil->is_opened = false;
 	pil->owner = desc->owner;
 	pil->dev.parent = desc->dev;
 	pil->dev.bus = &pil_bus_type;

@@ -54,6 +54,9 @@ enum usb_mode_type {
 	USB_PERIPHERAL,
 	USB_HOST,
 	USB_OTG,
+	//ASUS_BSP+++ BennyCheng "add microp notification & padstation hub power control"
+	USB_AUTO,
+	//ASUS_BSP--- BennyCheng "add microp notification & padstation hub power control"
 };
 
 /**
@@ -137,6 +140,9 @@ enum usb_chg_state {
  *			or more downstream ports. Capable of supplying
  *			IDEV_CHG_MAX irrespective of devices connected on
  *			accessory ports.
+ * USB_PROPRIETARY_CHARGER A proprietary charger pull DP and DM to specific
+ *			voltages between 2.0-3.3v for identification.
+ *
  */
 enum usb_chg_type {
 	USB_INVALID_CHARGER = 0,
@@ -147,6 +153,7 @@ enum usb_chg_type {
 	USB_ACA_B_CHARGER,
 	USB_ACA_C_CHARGER,
 	USB_ACA_DOCK_CHARGER,
+	USB_PROPRIETARY_CHARGER,
 };
 
 /**
@@ -318,6 +325,7 @@ struct msm_otg {
 	int async_int;
 	unsigned cur_power;
 	struct delayed_work chg_work;
+	struct delayed_work pmic_id_status_work;
 	enum usb_chg_state chg_state;
 	enum usb_chg_type chg_type;
 	u8 dcd_retries;
@@ -356,12 +364,17 @@ struct msm_otg {
 	u8 active_tmout;
 	struct hrtimer timer;
 	enum usb_vdd_type vdd_type;
+	//ASUS_BSP+++ BennyCheng "add microp notification & padstation hub power control"
+	enum usb_mode_type otg_mode;
+	//ASUS_BSP--- BennyCheng "add microp notification & padstation hub power control"
 };
 
 struct msm_hsic_host_platform_data {
 	unsigned strobe;
 	unsigned data;
 	struct msm_bus_scale_pdata *bus_scale_table;
+	unsigned log2_irq_thresh;
+	u32 swfi_latency;
 };
 
 struct msm_usb_host_platform_data {

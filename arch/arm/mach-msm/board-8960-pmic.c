@@ -96,18 +96,24 @@ struct pm8xxx_mpp_init {
 
 /* Initial PM8921 GPIO configurations */
 static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
-	PM8XXX_GPIO_OUTPUT_VIN(6, 1, PM_GPIO_VIN_VPH),	 /* MHL power EN_N */
+	//PM8XXX_GPIO_OUTPUT_VIN(6, 1, PM_GPIO_VIN_VPH),	 /* MHL power EN_N */
+	PM8XXX_GPIO_DISABLE(6),
 	PM8XXX_GPIO_DISABLE(7),				 /* Disable NFC */
-	PM8XXX_GPIO_INPUT(16,	    PM_GPIO_PULL_UP_30), /* SD_CARD_WP */
+	//PM8XXX_GPIO_INPUT(16,	    PM_GPIO_PULL_UP_30), /* SD_CARD_WP */
+	PM8XXX_GPIO_DISABLE(16),
     /* External regulator shared by display and touchscreen on LiQUID */
-	PM8XXX_GPIO_OUTPUT(17,	    0),			 /* DISP 3.3 V Boost */
-	PM8XXX_GPIO_OUTPUT(18,	0),	/* TABLA SPKR_LEFT_EN=off */
-	PM8XXX_GPIO_OUTPUT(19,	0),	/* TABLA SPKR_RIGHT_EN=off */
+	//PM8XXX_GPIO_OUTPUT(17,	    0),			 /* DISP 3.3 V Boost */
+	PM8XXX_GPIO_DISABLE(17),
+	//PM8XXX_GPIO_OUTPUT(18,	0),	/* TABLA SPKR_LEFT_EN=off */
+	//PM8XXX_GPIO_OUTPUT(19,	0),	/* TABLA SPKR_RIGHT_EN=off */
+	PM8XXX_GPIO_DISABLE(21),
 	PM8XXX_GPIO_DISABLE(22),			 /* Disable NFC */
-	PM8XXX_GPIO_OUTPUT_FUNC(25, 0, PM_GPIO_FUNC_2),	 /* TN_CLK */
+	PM8XXX_GPIO_DISABLE(24),
+	//PM8XXX_GPIO_OUTPUT_FUNC(25, 0, PM_GPIO_FUNC_2),	 /* TN_CLK */
 	PM8XXX_GPIO_INPUT(26,	    PM_GPIO_PULL_UP_30), /* SD_CARD_DET_N */
-	PM8XXX_GPIO_OUTPUT(43, 1),                       /* DISP_RESET_N */
-	PM8XXX_GPIO_OUTPUT(42, 0),                      /* USB 5V reg enable */
+	//PM8XXX_GPIO_OUTPUT(43, 1),                       /* DISP_RESET_N */ // +++ ASUS_BSP : miniporting : Mickey
+	//PM8XXX_GPIO_OUTPUT(42, 0),                      /* USB 5V reg enable */
+	PM8XXX_GPIO_DISABLE(42),
 	/* TABLA CODEC RESET */
 	PM8XXX_GPIO_OUTPUT_STRENGTH(34, 1, PM_GPIO_STRENGTH_MED)
 };
@@ -115,7 +121,7 @@ static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
 /* Initial PM8921 MPP configurations */
 static struct pm8xxx_mpp_init pm8921_mpps[] __initdata = {
 	/* External 5V regulator enable; shared by HDMI and USB_OTG switches. */
-	PM8XXX_MPP_INIT(7, D_INPUT, PM8921_MPP_DIG_LEVEL_VPH, DIN_TO_INT),
+	//PM8XXX_MPP_INIT(7, D_INPUT, PM8921_MPP_DIG_LEVEL_VPH, DIN_TO_INT),
 	PM8XXX_MPP_INIT(PM8XXX_AMUX_MPP_8, A_INPUT, PM8XXX_MPP_AIN_AMUX_CH8,
 								DOUT_CTRL_LOW),
 };
@@ -413,17 +419,35 @@ static int pm8921_therm_mitigation[] = {
 };
 
 #define MAX_VOLTAGE_MV		4200
+#define CHG_TERM_MA		100
 static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
-	.safety_time		= 180,
+	.safety_time		= 480,
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+/* use asus_bat worker to update battery without using qualcomm worker */
+#ifdef CONFIG_BATTERY_ASUS
+	.update_time		= 0,
+#else
 	.update_time		= 60000,
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"
 	.max_voltage		= MAX_VOLTAGE_MV,
 	.min_voltage		= 3200,
+	.uvd_thresh_voltage	= 4050,
 	.resume_voltage_delta	= 100,
-	.term_current		= 100,
+	.term_current		= CHG_TERM_MA,
 	.cool_temp		= 10,
 	.warm_temp		= 40,
 	.temp_check_period	= 1,
+//ASUS_BSP +++ Josh_Liao "add asus battery driver"
+/* modify max_bat_chg_current from 1100 to 1500. The max current will be min[CHG_IBAT_MAX,
+  * CHG_IBAT_SAFE] Besides, it is also limited by usb_ma_table[] if the charger is usb type.
+  */
+#ifdef CONFIG_BATTERY_ASUS
+	.max_bat_chg_current	= 1500,
+#else
 	.max_bat_chg_current	= 1100,
+#endif /* CONFIG_BATTERY_ASUS */
+//ASUS_BSP --- Josh_Liao "add asus battery driver"	
 	.cool_bat_chg_current	= 350,
 	.warm_bat_chg_current	= 350,
 	.cool_bat_voltage	= 4100,
@@ -438,12 +462,14 @@ static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 };
 
 static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
-	.battery_type	= BATT_UNKNOWN,
-	.r_sense		= 10,
-	.i_test			= 2500,
-	.v_failure		= 3000,
-	.max_voltage_uv		= MAX_VOLTAGE_MV * 1000,
-	.rconn_mohm		= 18,
+	.battery_type			= BATT_UNKNOWN,
+	.r_sense			= 10,
+	.v_cutoff			= 3400,
+	.max_voltage_uv			= MAX_VOLTAGE_MV * 1000,
+	.rconn_mohm			= 18,
+	.shutdown_soc_valid_limit	= 20,
+	.adjust_soc_low_threshold	= 25,
+	.chg_term_ua			= CHG_TERM_MA * 1000,
 };
 
 #define	PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
@@ -579,6 +605,13 @@ static struct pm8xxx_ccadc_platform_data pm8xxx_ccadc_pdata = {
 static struct pm8xxx_pwm_platform_data pm8xxx_pwm_pdata = {
 	.dtest_channel	= PM8XXX_PWM_DTEST_CHANNEL_NONE,
 };
+//ASUS BSP TIM-2011.08.24++
+struct pm8xxx_vibrator_platform_data pm8xxx_vibrator_pdata = {
+    .initial_vibrate_ms = 0,
+    .max_timeout_ms = 3000,
+    .level_mV = 2000,
+};
+//ASUS BSP TIM-2011.08.24--
 
 static struct pm8921_platform_data pm8921_platform_data __devinitdata = {
 	.irq_pdata		= &pm8xxx_irq_pdata,
@@ -595,6 +628,8 @@ static struct pm8921_platform_data pm8921_platform_data __devinitdata = {
 	.leds_pdata		= &pm8xxx_leds_pdata,
 	.ccadc_pdata		= &pm8xxx_ccadc_pdata,
 	.pwm_pdata		= &pm8xxx_pwm_pdata,
+	.vibrator_pdata = &pm8xxx_vibrator_pdata//ASUS BSP TIM-2011.08.24++
+	
 };
 
 static struct msm_ssbi_platform_data msm8960_ssbi_pm8921_pdata __devinitdata = {
@@ -622,6 +657,8 @@ void __init msm8960_init_pmic(void)
 		pm8921_platform_data.bms_pdata->battery_type = BATT_DESAY;
 	} else if (machine_is_msm8960_mtp()) {
 		pm8921_platform_data.bms_pdata->battery_type = BATT_PALLADIUM;
+	} else if (machine_is_msm8960_cdp()) {
+		pm8921_chg_pdata.has_dc_supply = true;
 	}
 
 	if (machine_is_msm8960_fluid())

@@ -300,6 +300,7 @@ __setup("reboot=", reboot_setup);
 
 void machine_shutdown(void)
 {
+	preempt_disable();
 #ifdef CONFIG_SMP
 	smp_send_stop();
 #endif
@@ -412,6 +413,8 @@ void __show_regs(struct pt_regs *regs)
 	unsigned long flags;
 	char buf[64];
 
+    printk("Call Stack:\n"); //added by jack
+    dump_stack();
 	printk("CPU: %d    %s  (%s %.*s)\n",
 		raw_smp_processor_id(), print_tainted(),
 		init_utsname()->release,

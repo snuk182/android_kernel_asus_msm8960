@@ -162,6 +162,10 @@ __do_kernel_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 	do_exit(SIGKILL);
 }
 
+#ifndef ASUS_SHIP_BUILD  
+extern void do_coredump(long signr, int exit_code, struct pt_regs *regs);
+#endif
+
 /*
  * Something tried to access memory that isn't in our memory map..
  * User mode accesses just cause a SIGSEGV
@@ -172,7 +176,7 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 		struct pt_regs *regs)
 {
 	struct siginfo si;
-
+#ifdef ASUS_SHIP_BUILD   
 #ifdef CONFIG_DEBUG_USER
 	if (((user_debug & UDBG_SEGV) && (sig == SIGSEGV)) ||
 	    ((user_debug & UDBG_BUS)  && (sig == SIGBUS))) {
@@ -182,7 +186,12 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 		show_regs(regs);
 	}
 #endif
-
+#else
+		printk(KERN_DEBUG "%s: unhandled page fault (%d) at 0x%08lx, code 0x%03x\n",
+		       tsk->comm, sig, addr, fsr);
+		show_pte(tsk->mm, addr);
+		show_regs(regs);
+#endif
 	tsk->thread.address = addr;
 	tsk->thread.error_code = fsr;
 	tsk->thread.trap_no = 14;
@@ -190,6 +199,9 @@ __do_user_fault(struct task_struct *tsk, unsigned long addr,
 	si.si_errno = 0;
 	si.si_code = code;
 	si.si_addr = (void __user *)addr;
+#ifndef ASUS_SHIP_BUILD  
+	do_coredump(si.si_signo, si.si_signo, regs);
+#endif
 	force_sig_info(sig, &si, tsk);
 }
 

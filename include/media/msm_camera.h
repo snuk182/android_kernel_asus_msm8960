@@ -26,8 +26,9 @@
 #else
 #include <linux/time.h>
 #endif
-
 #include <linux/ion.h>
+
+#define BIT(nr)   (1UL << (nr))
 
 #define MSM_CAM_IOCTL_MAGIC 'm'
 
@@ -446,15 +447,12 @@ struct msm_camera_cfg_cmd {
 #define CMD_VFE_BUFFER_RELEASE 51
 #define CMD_VFE_PROCESS_IRQ 52
 
-#define CMD_AXI_CFG_PRIM		0xc1
-#define CMD_AXI_CFG_PRIM_ALL_CHNLS	0xc2
-#define CMD_AXI_CFG_SEC			0xc4
-#define CMD_AXI_CFG_SEC_ALL_CHNLS	0xc8
-#define CMD_AXI_CFG_TERT1		0xd0
-
-
-#define CMD_AXI_START  0xE1
-#define CMD_AXI_STOP   0xE2
+#define CMD_AXI_CFG_PRIM               BIT(8)
+#define CMD_AXI_CFG_PRIM_ALL_CHNLS     BIT(9)
+#define CMD_AXI_CFG_SEC                BIT(10)
+#define CMD_AXI_CFG_SEC_ALL_CHNLS      BIT(11)
+#define CMD_AXI_CFG_TERT1              BIT(12)
+#define CMD_AXI_CFG_TERT2              BIT(13)
 
 /* vfe config command: config command(from config thread)*/
 struct msm_vfe_cfg_cmd {
@@ -551,25 +549,31 @@ struct outputCfg {
 #define OUTPUT_ZSL_ALL_CHNLS 10
 #define LAST_AXI_OUTPUT_MODE_ENUM = OUTPUT_ZSL_ALL_CHNLS
 
-#define OUTPUT_PRIM		0xC1
-#define OUTPUT_PRIM_ALL_CHNLS	0xC2
-#define OUTPUT_SEC		0xC4
-#define OUTPUT_SEC_ALL_CHNLS	0xC8
-#define OUTPUT_TERT1		0xD0
+#define OUTPUT_PRIM              BIT(8)
+#define OUTPUT_PRIM_ALL_CHNLS    BIT(9)
+#define OUTPUT_SEC               BIT(10)
+#define OUTPUT_SEC_ALL_CHNLS     BIT(11)
+#define OUTPUT_TERT1             BIT(12)
+#define OUTPUT_TERT2             BIT(13)
+
 
 
 #define MSM_FRAME_PREV_1	0
 #define MSM_FRAME_PREV_2	1
 #define MSM_FRAME_ENC		2
 
-#define OUTPUT_TYPE_P    (1<<0)
-#define OUTPUT_TYPE_T    (1<<1)
-#define OUTPUT_TYPE_S    (1<<2)
-#define OUTPUT_TYPE_V    (1<<3)
-#define OUTPUT_TYPE_L    (1<<4)
-#define OUTPUT_TYPE_ST_L (1<<5)
-#define OUTPUT_TYPE_ST_R (1<<6)
-#define OUTPUT_TYPE_ST_D (1<<7)
+#define OUTPUT_TYPE_P    BIT(0)
+#define OUTPUT_TYPE_T    BIT(1)
+#define OUTPUT_TYPE_S    BIT(2)
+#define OUTPUT_TYPE_V    BIT(3)
+#define OUTPUT_TYPE_L    BIT(4)
+#define OUTPUT_TYPE_ST_L BIT(5)
+#define OUTPUT_TYPE_ST_R BIT(6)
+#define OUTPUT_TYPE_ST_D BIT(7)
+#define OUTPUT_TYPE_R    BIT(8)
+#define OUTPUT_TYPE_R1   BIT(9)
+
+
 
 struct fd_roi_info {
 	void *info;
@@ -685,7 +689,13 @@ struct msm_stats_buf {
 	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+4)
 #define MSM_V4L2_EXT_CAPTURE_MODE_RAW \
 	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+5)
-#define MSM_V4L2_EXT_CAPTURE_MODE_MAX (MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+6)
+#define MSM_V4L2_EXT_CAPTURE_MODE_RDI \
+	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+6)
+#define MSM_V4L2_EXT_CAPTURE_MODE_RDI1 \
+	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+7)
+#define MSM_V4L2_EXT_CAPTURE_MODE_RDI2 \
+	(MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+8)
+#define MSM_V4L2_EXT_CAPTURE_MODE_MAX (MSM_V4L2_EXT_CAPTURE_MODE_DEFAULT+9)
 
 
 #define MSM_V4L2_PID_MOTION_ISO              V4L2_CID_PRIVATE_BASE
@@ -723,7 +733,10 @@ struct msm_stats_buf {
 #define MSM_V4L2_CAM_OP_RAW             (MSM_V4L2_CAM_OP_DEFAULT+5)
 /* camera operation mode for jpeg snapshot - one frame output queue */
 #define MSM_V4L2_CAM_OP_JPEG_CAPTURE    (MSM_V4L2_CAM_OP_DEFAULT+6)
-
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+/* camera operation mode for video recording - two frame output queues */
+#define MSM_V4L2_CAM_OP_VIDEO_FULL_HD   (MSM_V4L2_CAM_OP_DEFAULT+7)	
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"		//ASUS_BSP +++ Stimber "Add for FULL HD resolution recording"
 
 #define MSM_V4L2_VID_CAP_TYPE	0
 #define MSM_V4L2_STREAM_ON		1
@@ -806,18 +819,108 @@ struct msm_snapshot_pp_status {
 #define CFG_START_STREAM              44
 #define CFG_STOP_STREAM               45
 #define CFG_GET_CSI_PARAMS            46
-#define CFG_MAX			47
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+#define CFG_ISP_AF_START		47
+#define CFG_GET_ISP_AF_RESULT		48
+#define CFG_SET_ISP_LED_MODE		49	//ASUS_BSP LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+#define CFG_SET_ISP_EFFECT_MODE	50   //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Effect mode in 8M camera with ISP"	
+#define CFG_SET_ISP_WB_MODE	51 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"	
+#define CFG_SET_ISP_EV_MODE	52 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement EV mode in 8M camera with ISP"
+#define CFG_SET_ISP_SCENE_MODE	53 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"	
+#define CFG_SET_ISP_CAF_MODE	54 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement CAF mode in 8M camera with ISP"	
+#define CFG_SET_ISP_AECLOCK_MODE	55 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AEC Lock mode in 8M camera with ISP"
+#define CFG_SET_ISP_AWBLOCK_MODE	56 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AWB Lock mode in 8M camera with ISP"
+#define CFG_SET_ISP_ISO_MODE	57 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+#define CFG_SET_ISP_FLICKER_MODE	58 //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+#define CFG_GET_ISP_EXIF		59	//ASUS_BSP Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+#define CFG_MAX			60
 
 
 #define MOVE_NEAR	0
 #define MOVE_FAR	1
 
-#define SENSOR_PREVIEW_MODE		0
-#define SENSOR_SNAPSHOT_MODE		1
-#define SENSOR_RAW_SNAPSHOT_MODE	2
-#define SENSOR_HFR_60FPS_MODE 3
-#define SENSOR_HFR_90FPS_MODE 4
-#define SENSOR_HFR_120FPS_MODE 5
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  LED_MODE_OFF,
+  LED_MODE_AUTO,
+  LED_MODE_ON,
+  LED_MODE_TORCH,
+
+  /*new mode above should be added above this line*/
+  LED_MODE_MAX
+} led_mode_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement LED/Flash mode in 8M camera with ISP"
+
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  CAMERA_WB_MIN_MINUS_1,
+  CAMERA_WB_AUTO = 1,  /* This list must match aeecamera.h */
+  CAMERA_WB_CUSTOM,
+  CAMERA_WB_INCANDESCENT,
+  CAMERA_WB_FLUORESCENT,
+  CAMERA_WB_DAYLIGHT,
+  CAMERA_WB_CLOUDY_DAYLIGHT,
+  CAMERA_WB_TWILIGHT,
+  CAMERA_WB_SHADE,
+  CAMERA_WB_OFF,
+  CAMERA_WB_MAX_PLUS_1
+} config3a_wb_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"
+
+//ASUS_BSP +++ LiJen "[ov2720] porting Qcamera server for 8M camera"
+// Copy from vendor\qcom\proprietary\mm-camera\server\hardware\sensor\Sensor_interface.h
+typedef enum {
+  SENSOR_MODE_SNAPSHOT,
+  SENSOR_MODE_RAW_SNAPSHOT,
+  SENSOR_MODE_PREVIEW,
+  SENSOR_MODE_VIDEO,
+  SENSOR_MODE_VIDEO_FULL_HD,	//ASUS_BSP +++ Stimber "Add Full HD resolution for recording"
+  SENSOR_MODE_HFR_60FPS,
+  SENSOR_MODE_HFR_90FPS,
+  SENSOR_MODE_HFR_120FPS,
+  SENSOR_MODE_HFR_150FPS,
+  SENSOR_MODE_ZSL,
+  SENSOR_MODE_INVALID,
+} sensor_mode_t;
+
+// this define only for target
+#define SENSOR_PREVIEW_MODE		SENSOR_MODE_PREVIEW
+#define SENSOR_SNAPSHOT_MODE		SENSOR_MODE_SNAPSHOT
+#define SENSOR_VIDEO_MODE			SENSOR_MODE_VIDEO
+#define SENSOR_RAW_SNAPSHOT_MODE	SENSOR_MODE_RAW_SNAPSHOT
+#define SENSOR_HFR_60FPS_MODE 	SENSOR_MODE_HFR_60FPS
+#define SENSOR_HFR_90FPS_MODE 	SENSOR_MODE_HFR_90FPS
+#define SENSOR_HFR_120FPS_MODE 	SENSOR_MODE_HFR_120FPS
+//ASUS_BSP --- LiJen "[ov2720] porting Qcamera server for 8M camera"
+
+ //ASUS_BSP +++ LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+typedef enum {
+  CAMERA_BESTSHOT_OFF = 0,
+  CAMERA_BESTSHOT_AUTO = 1,
+  CAMERA_BESTSHOT_LANDSCAPE = 2,
+  CAMERA_BESTSHOT_SNOW,
+  CAMERA_BESTSHOT_BEACH,
+  CAMERA_BESTSHOT_SUNSET,
+  CAMERA_BESTSHOT_NIGHT,
+  CAMERA_BESTSHOT_PORTRAIT,
+  CAMERA_BESTSHOT_BACKLIGHT,
+  CAMERA_BESTSHOT_SPORTS,
+  CAMERA_BESTSHOT_ANTISHAKE,
+  CAMERA_BESTSHOT_FLOWERS,
+  CAMERA_BESTSHOT_CANDLELIGHT,
+  CAMERA_BESTSHOT_FIREWORKS,
+  CAMERA_BESTSHOT_PARTY,
+  CAMERA_BESTSHOT_NIGHT_PORTRAIT,
+  CAMERA_BESTSHOT_THEATRE,
+  CAMERA_BESTSHOT_ACTION,
+  CAMERA_BESTSHOT_AR,
+  CAMERA_BESTSHOT_MAX
+} camera_bestshot_mode_type;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Others]implement Scene mode in 8M camera with ISP"
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 
 #define SENSOR_QTR_SIZE			0
 #define SENSOR_FULL_SIZE		1
@@ -965,15 +1068,18 @@ enum msm_v4l2_expo_metering_mode {
 	MSM_V4L2_EXP_SPOT_METERING,
 };
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 enum msm_v4l2_iso_mode {
 	MSM_V4L2_ISO_AUTO = 0,
 	MSM_V4L2_ISO_DEBLUR,
+	MSM_V4L2_ISO_50,        //ASUS_BSP LiJen "[A60K][8M][NA][Others]add camera ISO 50 and remove ISO 1600"
 	MSM_V4L2_ISO_100,
 	MSM_V4L2_ISO_200,
 	MSM_V4L2_ISO_400,
 	MSM_V4L2_ISO_800,
-	MSM_V4L2_ISO_1600,
+	//MSM_V4L2_ISO_1600,    //ASUS_BSP LiJen "[A60K][8M][NA][Others]add camera ISO 50 and remove ISO 1600"
 };
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 
 enum msm_v4l2_wb_mode {
 	MSM_V4L2_WB_OFF,
@@ -1026,9 +1132,34 @@ struct exp_gain_cfg {
 	uint32_t line;
 };
 
+//ASUS_BSP +++ LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+//Copy from vendor\qcom\proprietary\mm-camera\common\Camera.h
+/* Auto focus mode, used for CAMERA_PARM_AF_MODE */
+typedef enum {
+  AF_MODE_UNCHANGED = -1,
+  AF_MODE_NORMAL    = 0,
+  AF_MODE_MACRO,
+  AF_MODE_AUTO,
+  AF_MODE_CAF,
+  AF_MODE_INFINITY,
+  AF_MODE_MAX
+} isp3a_af_mode_t;
+//ASUS_BSP --- LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+
 struct focus_cfg {
 	int32_t steps;
 	int dir;
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+	uint16_t af_enable;	// 1:enable af, 0:disable af
+	uint16_t af_continue; // 1:ebale continue af, 0:disable continue af
+	isp3a_af_mode_t mode;  //ASUS_BSP LiJen "[A60K][8M][NA][Spec]implement set focus mode"
+	uint16_t result;
+// For any point autofocus	
+	int16_t coordinate_x;
+	int16_t coordinate_y;
+	int16_t rectangle_h;
+	int16_t rectangle_w;
+//ASUS_BSP ---Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 };
 
 struct fps_cfg {
@@ -1097,6 +1228,7 @@ struct sensor_calib_data {
 enum msm_sensor_resolution_t {
 	MSM_SENSOR_RES_FULL,
 	MSM_SENSOR_RES_QTR,
+        MSM_SENSOR_RES_FULL_HD,	//Stimber "Add Full HD resolution for recording" //ASUS_BSP LiJen "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	MSM_SENSOR_RES_2,
 	MSM_SENSOR_RES_3,
 	MSM_SENSOR_RES_4,
@@ -1242,12 +1374,25 @@ struct ispif_cfg_data {
 	} cfg;
 };
 
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+struct exif_cfg {
+	uint16_t iso;
+	uint32_t  exp_time_num;    // Numerator
+    uint32_t  exp_time_denom;  // Denominator
+};
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
+
 struct sensor_cfg_data {
 	int cfgtype;
 	int mode;
 	int rs;
 	uint8_t max_steps;
-
+//ASUS_BSP +++ Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"	
+//ASUS_BSP+++ CR_0000 Randy_Change@asus.com.tw [2011/10/4] Modify Begin
+	void* sensorSetting;
+	uint16_t iSettingCount;
+//ASUS_BSP--- CR_0000 Randy_Change@asus.com.tw [2011/10/4] Modify End
+//ASUS_BSP --- Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
 	union {
 		int8_t effect;
 		uint8_t lens_shading;
@@ -1281,6 +1426,14 @@ struct sensor_cfg_data {
 		struct cord aec_cord;
 		int is_autoflash;
 		struct mirror_flip mirror_flip;
+		int wb; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement WB mode in 8M camera with ISP"	//ASUS_BSP Stimber "[A60K][8M][NA][Others]Full porting for 8M camera with ISP"
+		int ev; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement EV mode in 8M camera with ISP"
+		int scene; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Sence mode in 8M camera with ISP"
+		int aeclock; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AEC Lock mode in 8M camera with ISP"
+		int awblock; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement AWB Lock mode in 8M camera with ISP"
+		int iso; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement ISO mode in 8M camera with ISP"
+		int flicker; //ASUS_BSP LiJen "[A60K][8M][NA][Others]implement Flicker mode in 8M camera with ISP"
+		struct exif_cfg exif;	//ASUS_BSP Stimber "[A60K][8M][NA][Other] Implement EXIF info for 8M camera with ISP"
 	} cfg;
 };
 
@@ -1568,177 +1721,25 @@ struct img_plane_info {
 #define QCAMERA_VNODE_GROUP_ID 2
 
 #define MSM_CAM_V4L2_IOCTL_GET_CAMERA_INFO \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct msm_camera_v4l2_ioctl_t)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct msm_camera_v4l2_ioctl_t *)
 
 #define MSM_CAM_V4L2_IOCTL_GET_CONFIG_INFO \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 2, struct msm_camera_v4l2_ioctl_t)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 2, struct msm_camera_v4l2_ioctl_t *)
 
 #define MSM_CAM_V4L2_IOCTL_GET_MCTL_INFO \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 3, struct msm_camera_v4l2_ioctl_t)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 3, struct msm_camera_v4l2_ioctl_t *)
 
 #define MSM_CAM_V4L2_IOCTL_CTRL_CMD_DONE \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 4, struct msm_camera_v4l2_ioctl_t)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 4, struct msm_camera_v4l2_ioctl_t *)
 
 #define MSM_CAM_V4L2_IOCTL_GET_EVENT_PAYLOAD \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 5, struct msm_camera_v4l2_ioctl_t)
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 5, struct msm_camera_v4l2_ioctl_t *)
 
 #define MSM_CAM_IOCTL_SEND_EVENT \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 6, struct v4l2_event)
 
-#define MSM_CAM_V4L2_IOCTL_CFG_VPE \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 7, struct msm_vpe_cfg_cmd)
-
-#define MSM_CAM_V4L2_IOCTL_PRIVATE_S_CTRL \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 8, struct msm_camera_v4l2_ioctl_t)
-
 struct msm_camera_v4l2_ioctl_t {
-	uint32_t id;
 	void __user *ioctl_ptr;
-	uint32_t len;
 };
-
-enum msm_camss_irq_idx {
-	CAMERA_SS_IRQ_0,
-	CAMERA_SS_IRQ_1,
-	CAMERA_SS_IRQ_2,
-	CAMERA_SS_IRQ_3,
-	CAMERA_SS_IRQ_4,
-	CAMERA_SS_IRQ_5,
-	CAMERA_SS_IRQ_6,
-	CAMERA_SS_IRQ_7,
-	CAMERA_SS_IRQ_8,
-	CAMERA_SS_IRQ_9,
-	CAMERA_SS_IRQ_10,
-	CAMERA_SS_IRQ_11,
-	CAMERA_SS_IRQ_12,
-	CAMERA_SS_IRQ_MAX
-};
-
-enum msm_cam_hw_idx {
-	MSM_CAM_HW_MICRO,
-	MSM_CAM_HW_CCI,
-	MSM_CAM_HW_CSI0,
-	MSM_CAM_HW_CSI1,
-	MSM_CAM_HW_CSI2,
-	MSM_CAM_HW_CSI3,
-	MSM_CAM_HW_ISPIF,
-	MSM_CAM_HW_CPP,
-	MSM_CAM_HW_VFE0,
-	MSM_CAM_HW_VFE1,
-	MSM_CAM_HW_JPEG0,
-	MSM_CAM_HW_JPEG1,
-	MSM_CAM_HW_JPEG2,
-	MSM_CAM_HW_MAX
-};
-
-struct msm_camera_irq_cfg {
-	/* Bit mask of all the camera hardwares that needs to
-	 * be composited into a single IRQ to the MSM.
-	 * Current usage: (may be updated based on hw changes)
-	 * Bits 31:13 - Reserved.
-	 * Bits 12:0
-	 * 12 - MSM_CAM_HW_JPEG2
-	 * 11 - MSM_CAM_HW_JPEG1
-	 * 10 - MSM_CAM_HW_JPEG0
-	 *  9 - MSM_CAM_HW_VFE1
-	 *  8 - MSM_CAM_HW_VFE0
-	 *  7 - MSM_CAM_HW_CPP
-	 *  6 - MSM_CAM_HW_ISPIF
-	 *  5 - MSM_CAM_HW_CSI3
-	 *  4 - MSM_CAM_HW_CSI2
-	 *  3 - MSM_CAM_HW_CSI1
-	 *  2 - MSM_CAM_HW_CSI0
-	 *  1 - MSM_CAM_HW_CCI
-	 *  0 - MSM_CAM_HW_MICRO
-	 */
-	uint32_t cam_hw_mask;
-	uint8_t  irq_idx;
-	uint8_t  num_hwcore;
-};
-
-#define MSM_IRQROUTER_CFG_COMPIRQ \
-	_IOWR('V', BASE_VIDIOC_PRIVATE, void __user *)
-
-#define MAX_NUM_CPP_STRIPS 8
-
-enum msm_cpp_frame_type {
-	MSM_CPP_OFFLINE_FRAME,
-	MSM_CPP_REALTIME_FRAME,
-};
-
-struct msm_cpp_frame_strip_info {
-	int scale_v_en;
-	int scale_h_en;
-
-	int upscale_v_en;
-	int upscale_h_en;
-
-	int src_start_x;
-	int src_end_x;
-	int src_start_y;
-	int src_end_y;
-
-	/* Padding is required for upscaler because it does not
-	 * pad internally like other blocks, also needed for rotation
-	 * rotation expects all the blocks in the stripe to be the same size
-	 * Padding is done such that all the extra padded pixels
-	 * are on the right and bottom
-	*/
-	int pad_bottom;
-	int pad_top;
-	int pad_right;
-	int pad_left;
-
-	int v_init_phase;
-	int h_init_phase;
-	int h_phase_step;
-	int v_phase_step;
-
-	int prescale_crop_width_first_pixel;
-	int prescale_crop_width_last_pixel;
-	int prescale_crop_height_first_line;
-	int prescale_crop_height_last_line;
-
-	int postscale_crop_height_first_line;
-	int postscale_crop_height_last_line;
-	int postscale_crop_width_first_pixel;
-	int postscale_crop_width_last_pixel;
-
-	int dst_start_x;
-	int dst_end_x;
-	int dst_start_y;
-	int dst_end_y;
-
-	int bytes_per_pixel;
-	unsigned int source_address;
-	unsigned int destination_address;
-	unsigned int src_stride;
-	unsigned int dst_stride;
-	int rotate_270;
-	int horizontal_flip;
-	int vertical_flip;
-	int scale_output_width;
-	int scale_output_height;
-};
-
-struct msm_cpp_frame_info_t {
-	int32_t frame_id;
-	uint32_t inst_id;
-	uint32_t client_id;
-	enum msm_cpp_frame_type frame_type;
-	uint32_t num_strips;
-	struct msm_cpp_frame_strip_info *strip_info;
-};
-
-#define VIDIOC_MSM_CPP_CFG \
-	_IOWR('V', BASE_VIDIOC_PRIVATE, struct msm_camera_v4l2_ioctl_t)
-
-#define VIDIOC_MSM_CPP_GET_EVENTPAYLOAD \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct msm_camera_v4l2_ioctl_t)
-
-#define VIDIOC_MSM_CPP_GET_INST_INFO \
-	_IOWR('V', BASE_VIDIOC_PRIVATE + 2, struct msm_camera_v4l2_ioctl_t)
-
-#define V4L2_EVENT_CPP_FRAME_DONE  (V4L2_EVENT_PRIVATE_START + 0)
 
 #endif /* __LINUX_MSM_CAMERA_H */

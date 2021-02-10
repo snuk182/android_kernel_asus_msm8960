@@ -81,6 +81,7 @@ __setup("fpe=", fpe_setup);
 extern void paging_init(struct machine_desc *desc);
 extern void sanity_check_meminfo(void);
 extern void reboot_setup(char *str);
+extern void setup_dma_zone(struct machine_desc *desc);
 
 unsigned int processor_id;
 EXPORT_SYMBOL(processor_id);
@@ -668,6 +669,12 @@ __tagtable(ATAG_CORE, parse_tag_core);
 
 static int __init parse_tag_mem32(const struct tag *tag)
 {
+    if(tag->u.mem.start == 0x80200000)
+    {
+        //size = tag->u.mem.size - PRINTK_BUFFER_SIZE;
+        PRINTK_BUFFER = tag->u.mem.start + tag->u.mem.size - PRINTK_BUFFER_SIZE;
+    }
+    printk("parse_tag_mem32 %x, %x,\n", tag->u.mem.start, tag->u.mem.size);
 	return arm_add_memory(tag->u.mem.start, tag->u.mem.size);
 }
 
@@ -941,12 +948,8 @@ void __init setup_arch(char **cmdline_p)
 	machine_desc = mdesc;
 	machine_name = mdesc->name;
 
-#ifdef CONFIG_ZONE_DMA
-	if (mdesc->dma_zone_size) {
-		extern unsigned long arm_dma_zone_size;
-		arm_dma_zone_size = mdesc->dma_zone_size;
-	}
-#endif
+	setup_dma_zone(mdesc);
+
 	if (mdesc->restart_mode)
 		reboot_setup(&mdesc->restart_mode);
 
@@ -1054,6 +1057,7 @@ static const char *hwcap_str[] = {
 static int c_show(struct seq_file *m, void *v)
 {
 	int i;
+	char cpu_type[128] = {0};
 
 	seq_printf(m, "Processor\t: %s rev %d (%s)\n",
 		   cpu_name, read_cpuid_id() & 15, elf_platform);
@@ -1106,7 +1110,15 @@ static int c_show(struct seq_file *m, void *v)
 
 	seq_puts(m, "\n");
 
-	seq_printf(m, "Hardware\t: %s\n", machine_name);
+	if (g_asus_plat_info.dc == 1)
+	{
+		sprintf(cpu_type, "%s DC", g_asus_plat_info.cpu_id);
+	}
+	else
+	{
+		sprintf(cpu_type, "%s non-DC", g_asus_plat_info.cpu_id);
+	}
+	seq_printf(m, "Hardware\t: %s\n", cpu_type);
 	seq_printf(m, "Revision\t: %04x\n", system_rev);
 	seq_printf(m, "Serial\t\t: %08x%08x\n",
 		   system_serial_high, system_serial_low);

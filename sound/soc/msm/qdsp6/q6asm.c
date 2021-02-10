@@ -445,6 +445,7 @@ struct audio_client *q6asm_audio_client_alloc(app_cb cb, void *priv)
 		spin_lock_init(&ac->port[lcnt].dsp_lock);
 	}
 	atomic_set(&ac->cmd_state, 0);
+	atomic_set(&ac->cmd_response, 0);
 
 	pr_debug("%s: session[%d]\n", __func__, ac->session);
 
@@ -804,6 +805,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 	uint32_t token;
 	unsigned long dsp_flags;
 	uint32_t *payload;
+	uint32_t wakeup_flag = 1;
 
 
 	if ((ac == NULL) || (data == NULL)) {
@@ -815,7 +817,13 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 			ac->session);
 		return -EINVAL;
 	}
-
+	if (atomic_read(&ac->nowait_cmd_cnt) > 0) {
+		pr_debug("%s: nowait_cmd_cnt %d\n",
+				__func__,
+				atomic_read(&ac->nowait_cmd_cnt));
+		atomic_dec(&ac->nowait_cmd_cnt);
+		wakeup_flag = 0;
+	}
 	payload = data->payload;
 
 	if (data->opcode == RESET_EVENTS) {
@@ -861,8 +869,12 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		case ASM_STREAM_CMD_SET_ENCDEC_PARAM:
 		case ASM_STREAM_CMD_OPEN_WRITE_COMPRESSED:
 		case ASM_STREAM_CMD_OPEN_READ_COMPRESSED:
-			if (atomic_read(&ac->cmd_state)) {
+			if (atomic_read(&ac->cmd_state) && wakeup_flag) {
 				atomic_set(&ac->cmd_state, 0);
+				if (payload[1] == ADSP_EUNSUPPORTED)
+					atomic_set(&ac->cmd_response, 1);
+				else
+					atomic_set(&ac->cmd_response, 0);
 				wake_up(&ac->cmd_wait);
 			}
 			if (ac->cb)
@@ -1438,6 +1450,10 @@ int q6asm_open_write(struct audio_client *ac, uint32_t format)
 			rc);
 		goto fail_cmd;
 	}
+	if (atomic_read(&ac->cmd_response)) {
+		pr_err("%s: format = %x not supported\n", __func__, format);
+		goto fail_cmd;
+	}
 	return 0;
 fail_cmd:
 	return -EINVAL;
@@ -1609,12 +1625,12 @@ int q6asm_run_nowait(struct audio_client *ac, uint32_t flags,
 	run.flags    = flags;
 	run.msw_ts   = msw_ts;
 	run.lsw_ts   = lsw_ts;
-
 	rc = apr_send_pkt(ac->apr, (uint32_t *) &run);
 	if (rc < 0) {
 		pr_err("%s:Commmand run failed[%d]", __func__, rc);
 		return -EINVAL;
 	}
+	atomic_inc(&ac->nowait_cmd_cnt);
 	return 0;
 }
 
@@ -1768,14 +1784,43 @@ int q6asm_enc_cfg_blk_multi_ch_pcm(struct audio_client *ac,
 	enc_cfg.enc_blk.cfg.mpcm.sample_rate = rate;
 	enc_cfg.enc_blk.cfg.mpcm.is_signed = 1;
 	enc_cfg.enc_blk.cfg.mpcm.is_interleaved = 1;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[0] = PCM_CHANNEL_FL;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[1] = PCM_CHANNEL_FR;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[2] = PCM_CHANNEL_RB;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[3] = PCM_CHANNEL_LB;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[4] = 0;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[5] = 0;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[6] = 0;
-	enc_cfg.enc_blk.cfg.mpcm.channel_mapping[7] = 0;
+	if (channels == 2) {
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[0] = PCM_CHANNEL_FL;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[1] = PCM_CHANNEL_FR;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[2] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[3] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[4] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[5] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[6] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[7] = 0;
+	} else if (channels == 4) {
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[0] = PCM_CHANNEL_FL;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[1] = PCM_CHANNEL_FR;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[2] = PCM_CHANNEL_RB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[3] = PCM_CHANNEL_LB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[4] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[5] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[6] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[7] = 0;
+	} else if (channels == 6) {
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[0] = PCM_CHANNEL_FL;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[1] = PCM_CHANNEL_FR;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[2] = PCM_CHANNEL_LFE;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[3] = PCM_CHANNEL_FC;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[4] = PCM_CHANNEL_LB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[5] = PCM_CHANNEL_RB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[6] = 0;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[7] = 0;
+	} else if (channels == 8) {
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[0] = PCM_CHANNEL_FL;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[1] = PCM_CHANNEL_FR;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[2] = PCM_CHANNEL_LFE;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[3] = PCM_CHANNEL_FC;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[4] = PCM_CHANNEL_LB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[5] = PCM_CHANNEL_RB;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[6] = PCM_CHANNEL_FLC;
+		enc_cfg.enc_blk.cfg.mpcm.channel_mapping[7] = PCM_CHANNEL_FRC;
+	}
 
 	rc = apr_send_pkt(ac->apr, (uint32_t *) &enc_cfg);
 	if (rc < 0) {
@@ -3368,7 +3413,7 @@ uint64_t q6asm_get_session_time(struct audio_client *ac)
 		pr_err("APR handle NULL\n");
 		return -EINVAL;
 	}
-	q6asm_add_hdr(ac, &hdr, sizeof(hdr), TRUE);
+	q6asm_add_hdr(ac, &hdr, sizeof(hdr), FALSE);
 	hdr.opcode = ASM_SESSION_CMD_GET_SESSION_TIME;
 	atomic_set(&ac->time_flag, 1);
 
@@ -3503,11 +3548,13 @@ int q6asm_cmd_nowait(struct audio_client *ac, int cmd)
 	pr_debug("%s:session[%d]opcode[0x%x] ", __func__,
 						ac->session,
 						hdr.opcode);
+
 	rc = apr_send_pkt(ac->apr, (uint32_t *) &hdr);
 	if (rc < 0) {
 		pr_err("%s:Commmand 0x%x failed\n", __func__, hdr.opcode);
 		goto fail_cmd;
 	}
+	atomic_inc(&ac->nowait_cmd_cnt);
 	return 0;
 fail_cmd:
 	return -EINVAL;
@@ -3593,13 +3640,13 @@ static int __init q6asm_init(void)
 #ifdef CONFIG_DEBUG_FS
 	out_buffer = kmalloc(OUT_BUFFER_SIZE, GFP_KERNEL);
 	out_dentry = debugfs_create_file("audio_out_latency_measurement_node",\
-				S_IFREG | S_IRUGO | S_IWUGO,\
+				S_IFREG | S_IRUGO | (S_IWUSR|S_IWGRP),\
 				NULL, NULL, &audio_output_latency_debug_fops);
 	if (IS_ERR(out_dentry))
 		pr_err("debugfs_create_file failed\n");
 	in_buffer = kmalloc(IN_BUFFER_SIZE, GFP_KERNEL);
 	in_dentry = debugfs_create_file("audio_in_latency_measurement_node",\
-				S_IFREG | S_IRUGO | S_IWUGO,\
+				S_IFREG | S_IRUGO | (S_IWUSR|S_IWGRP),\
 				NULL, NULL, &audio_input_latency_debug_fops);
 	if (IS_ERR(in_dentry))
 		pr_err("debugfs_create_file failed\n");

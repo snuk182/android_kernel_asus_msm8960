@@ -307,8 +307,8 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 	{"Ext Spk Left Neg", NULL, "LINEOUT2"},
 
 	/* Headset Mic */
-	{"AMIC2", NULL, "MIC BIAS2 Internal1"},
-	{"MIC BIAS2 Internal1", NULL, "Headset Mic"},
+	{"AMIC2", NULL, "MIC BIAS2 External"},
+	{"MIC BIAS2 External", NULL, "Headset Mic"},
 
 	/* Microphone path */
 	{"AMIC1", NULL, "MIC BIAS2 External"},
@@ -1222,7 +1222,7 @@ static int __init msm8930_audio_init(void)
 {
 	int ret;
 
-	if (!cpu_is_msm8930()) {
+	if (!cpu_is_msm8930() && !cpu_is_msm8930aa() && !cpu_is_msm8627()) {
 		pr_err("%s: Not the right machine type\n", __func__);
 		return -ENODEV ;
 	}
@@ -1260,7 +1260,7 @@ module_init(msm8930_audio_init);
 
 static void __exit msm8930_audio_exit(void)
 {
-	if (!cpu_is_msm8930()) {
+	if (!cpu_is_msm8930() && !cpu_is_msm8930aa() && !cpu_is_msm8627()) {
 		pr_err("%s: Not the right machine type\n", __func__);
 		return ;
 	}

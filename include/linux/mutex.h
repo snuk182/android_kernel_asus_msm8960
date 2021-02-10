@@ -60,6 +60,7 @@ struct mutex {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
 #endif
+    const char      *name;//jack
 };
 
 /*

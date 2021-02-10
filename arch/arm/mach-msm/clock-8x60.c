@@ -602,7 +602,6 @@ static struct branch_clk smi_2x_axi_clk = {
 	.c = {
 		.dbg_name = "smi_2x_axi_clk",
 		.ops = &clk_ops_branch,
-		.flags = CLKFLAG_SKIP_AUTO_OFF,
 		CLK_INIT(smi_2x_axi_clk.c),
 	},
 };
@@ -3022,6 +3021,7 @@ static struct clk_freq_tbl clk_tbl_aif_osr[] = {
 			.dbg_name = #i "_clk", \
 			.ops = &clk_ops_cdiv, \
 			CLK_INIT(i##_clk.c), \
+			.rate = ULONG_MAX, \
 		}, \
 	}
 
@@ -3095,6 +3095,7 @@ static struct rcg_clk pcm_clk = {
 		.ops = &clk_ops_rcg,
 		VDD_DIG_FMAX_MAP1(LOW, 24580000),
 		CLK_INIT(pcm_clk.c),
+		.rate = ULONG_MAX,
 	},
 };
 
@@ -3485,6 +3486,7 @@ static struct clk_lookup msm_clocks_8x60[] = {
 	CLK_LOOKUP("xo",		cxo_a_clk.c,	""),
 	CLK_LOOKUP("xo",		pxo_a_clk.c,	""),
 	CLK_LOOKUP("xo",		pxo_clk.c,	"pil_modem"),
+	CLK_LOOKUP("vref_buff",		cxo_clk.c,	"rpm-regulator"),
 	CLK_LOOKUP("pll4",		pll4_clk.c,	"pil_qdsp6v3"),
 	CLK_LOOKUP("measure",		measure_clk.c,	"debug"),
 
@@ -3521,6 +3523,7 @@ static struct clk_lookup msm_clocks_8x60[] = {
 	CLK_LOOKUP("mem_a_clk",		ebi1_msmbus_a_clk.c, "msm_bus"),
 	CLK_LOOKUP("smi_clk",		smi_clk.c,	"msm_bus"),
 	CLK_LOOKUP("smi_a_clk",		smi_a_clk.c,	"msm_bus"),
+	CLK_LOOKUP("mmfpb_a_clk",	mmfpb_a_clk.c,	"clock-8x60"),
 
 	CLK_LOOKUP("core_clk",		gp0_clk.c,		""),
 	CLK_LOOKUP("core_clk",		gp1_clk.c,		""),
@@ -3722,6 +3725,8 @@ static struct clk_lookup msm_clocks_8x60[] = {
 	CLK_LOOKUP("vcodec_iommu0_clk", vcodec_axi_clk.c, "msm_vidc.0"),
 	CLK_LOOKUP("vcodec_iommu1_clk", vcodec_axi_clk.c, "msm_vidc.0"),
 	CLK_LOOKUP("smmu_iface_clk", smmu_p_clk.c,	"msm_vidc.0"),
+	CLK_LOOKUP("core_clk",		vcodec_axi_clk.c,  "pil_vidc"),
+	CLK_LOOKUP("smmu_iface_clk",	smmu_p_clk.c,  "pil_vidc"),
 
 	CLK_LOOKUP("dfab_dsps_clk",	dfab_dsps_clk.c, NULL),
 	CLK_LOOKUP("core_clk",		dfab_usb_hs_clk.c,	"msm_otg"),
@@ -3870,7 +3875,7 @@ static int __init msm8660_clock_late_init(void)
 	int rc;
 
 	/* Vote for MMFPB to be at least 64MHz when an Apps CPU is active. */
-	struct clk *mmfpb_a_clk = clk_get(NULL, "mmfpb_a_clk");
+	struct clk *mmfpb_a_clk = clk_get_sys("clock-8x60", "mmfpb_a_clk");
 	if (WARN(IS_ERR(mmfpb_a_clk), "mmfpb_a_clk not found (%ld)\n",
 			PTR_ERR(mmfpb_a_clk)))
 		return PTR_ERR(mmfpb_a_clk);

@@ -61,7 +61,8 @@
 int msm_csiphy_config(struct csiphy_cfg_params *cfg_params)
 {
 	int rc = 0;
-	int j = 0;
+	int i = 0;
+	//int j = 0;
 	uint32_t val = 0;
 	uint8_t lane_cnt = 0, lane_mask = 0;
 	struct csiphy_device *csiphy_dev;
@@ -82,12 +83,24 @@ int msm_csiphy_config(struct csiphy_cfg_params *cfg_params)
 	}
 
 	val = 0x3;
-	msm_camera_io_w((csiphy_params->lane_mask << 2) | val,
-			csiphybase + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);
+	printk("msm_csiphy_config csiphybase:0x%8x, %d, %d, %d\n", (int)csiphybase, 
+		csiphy_params->lane_mask, csiphy_params->lane_cnt, csiphy_params->settle_cnt);
+	//msm_camera_io_w((csiphy_params->lane_mask << 2) | val,
+			//csiphybase + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);
+	//add by sam ++
+	#if 1
+	if( csiphy_params->settle_cnt == 17)
+		msm_camera_io_w(0xf, csiphybase + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);//for ov2720
+	else if( csiphy_params->settle_cnt == 20)
+		msm_camera_io_w(0x7, csiphybase + MIPI_CSIPHY_GLBL_PWR_CFG_ADDR);
+	//add by sam --
+	#endif
 	msm_camera_io_w(0x1, csiphybase + MIPI_CSIPHY_GLBL_T_INIT_CFG0_ADDR);
 	msm_camera_io_w(0x1, csiphybase + MIPI_CSIPHY_T_WAKEUP_CFG0_ADDR);
 
-	while (lane_mask & 0xf) {
+	
+	//add by sam ++
+	/*while (lane_mask & 0xf) {
 		if (!(lane_mask & 0x1)) {
 			j++;
 			lane_mask >>= 1;
@@ -105,7 +118,14 @@ int msm_csiphy_config(struct csiphy_cfg_params *cfg_params)
 				0x4*(j+1));
 		j++;
 		lane_mask >>= 1;
+	}*/
+	
+	for (i = 0; i < csiphy_params->lane_cnt; i++) {
+		msm_camera_io_w(0x10, csiphybase + MIPI_CSIPHY_LNn_CFG2_ADDR + 0x40*i);
+		msm_camera_io_w(csiphy_params->settle_cnt,
+			csiphybase + MIPI_CSIPHY_LNn_CFG3_ADDR + 0x40*i);
 	}
+	//add by sam --
 
 	msm_camera_io_w(0x10, csiphybase + MIPI_CSIPHY_LNCK_CFG2_ADDR);
 	msm_camera_io_w(csiphy_params->settle_cnt,
@@ -115,6 +135,15 @@ int msm_csiphy_config(struct csiphy_cfg_params *cfg_params)
 		csiphybase + MIPI_CSIPHY_INTERRUPT_MASK0_ADDR);
 	msm_camera_io_w(0x24,
 		csiphybase + MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR);
+
+	//add by sam +++
+	/*for (i = 1; i <= csiphy_params->lane_cnt; i++) {
+		msm_camera_io_w(0x6F,
+			csiphybase + MIPI_CSIPHY_INTERRUPT_MASK0_ADDR + 0x4*i);
+		msm_camera_io_w(0x6F,
+			csiphybase + MIPI_CSIPHY_INTERRUPT_CLEAR0_ADDR + 0x4*i);
+	}*/
+	//add by sam ---
 	return rc;
 }
 
@@ -282,8 +311,6 @@ static int __devinit csiphy_probe(struct platform_device *pdev)
 {
 	struct csiphy_device *new_csiphy_dev;
 	int rc = 0;
-	struct msm_cam_subdev_info sd_info;
-
 	CDBG("%s: device id = %d\n", __func__, pdev->id);
 	new_csiphy_dev = kzalloc(sizeof(struct csiphy_device), GFP_KERNEL);
 	if (!new_csiphy_dev) {
@@ -335,11 +362,8 @@ static int __devinit csiphy_probe(struct platform_device *pdev)
 	disable_irq(new_csiphy_dev->irq->start);
 
 	new_csiphy_dev->pdev = pdev;
-	sd_info.sdev_type = CSIPHY_DEV;
-	sd_info.sd_index = pdev->id;
-	sd_info.irq_num = new_csiphy_dev->irq->start;
 	msm_cam_register_subdev_node(
-		&new_csiphy_dev->subdev, &sd_info);
+		&new_csiphy_dev->subdev, CSIPHY_DEV, pdev->id);
 	return 0;
 
 csiphy_no_resource:

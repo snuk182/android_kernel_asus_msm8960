@@ -18,6 +18,9 @@
 #define PPP_HDRLEN	4	/* octets for standard ppp header */
 #define PPP_FCSLEN	2	/* octets for FCS */
 #define PPP_MRU		1500	/* default MRU = max length of info field */
+//ASUS_BSP+++ "add for PPP"
+#define	PPP_MTU		1500	/* Default MTU (size of Info field) */
+//ASUS_BSP--- "add for PPP"
 
 #define PPP_ADDRESS(p)	(((__u8 *)(p))[0])
 #define PPP_CONTROL(p)	(((__u8 *)(p))[1])

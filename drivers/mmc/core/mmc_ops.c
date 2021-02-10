@@ -63,8 +63,13 @@ int mmc_card_sleepawake(struct mmc_host *host, int sleep)
 	struct mmc_card *card = host->card;
 	int err;
 
-	if (sleep)
+	if (sleep) {
 		mmc_deselect_cards(host);
+//ASUS_BSP +++ Josh_Liao "workaround to make card always has response after resume"
+	} else {
+		mmc_delay(10);
+	}
+//ASUS_BSP +++ Josh_Liao "workaround to make card always has response after resume"
 
 	cmd.opcode = MMC_SLEEP_AWAKE;
 	cmd.arg = card->rca << 16;

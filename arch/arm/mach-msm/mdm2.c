@@ -44,7 +44,7 @@
 
 #define MDM_PBLRDY_CNT		20
 
-static int mdm_debug_on;
+static int mdm_debug_mask;
 static int power_on_count;
 static int hsic_peripheral_status;
 static DEFINE_MUTEX(hsic_status_lock);
@@ -77,6 +77,7 @@ out:
 	mutex_unlock(&hsic_status_lock);
 }
 
+/* This function can be called from atomic context. */
 static void mdm_toggle_soft_reset(struct mdm_modem_drv *mdm_drv)
 {
 	int soft_reset_direction_assert = 0,
@@ -88,9 +89,18 @@ static void mdm_toggle_soft_reset(struct mdm_modem_drv *mdm_drv)
 	}
 	gpio_direction_output(mdm_drv->ap2mdm_soft_reset_gpio,
 			soft_reset_direction_assert);
-	usleep_range(5000, 10000);
+	/* Use mdelay because this function can be called from atomic
+	 * context.
+	 */
+	mdelay(10);
 	gpio_direction_output(mdm_drv->ap2mdm_soft_reset_gpio,
 			soft_reset_direction_de_assert);
+}
+
+/* This function can be called from atomic context. */
+static void mdm_atomic_soft_reset(struct mdm_modem_drv *mdm_drv)
+{
+	mdm_toggle_soft_reset(mdm_drv);
 }
 
 static void mdm_power_down_common(struct mdm_modem_drv *mdm_drv)
@@ -98,6 +108,8 @@ static void mdm_power_down_common(struct mdm_modem_drv *mdm_drv)
 	int i;
 	int soft_reset_direction =
 		mdm_drv->pdata->soft_reset_inverted ? 1 : 0;
+
+	mdm_peripheral_disconnect(mdm_drv);
 
 	/* Wait for the modem to complete its power down actions. */
 	for (i = 20; i > 0; i--) {
@@ -118,7 +130,6 @@ static void mdm_power_down_common(struct mdm_modem_drv *mdm_drv)
 		*/
 		msleep(4000);
 	}
-	mdm_peripheral_disconnect(mdm_drv);
 }
 
 static void mdm_do_first_power_on(struct mdm_modem_drv *mdm_drv)
@@ -224,7 +235,7 @@ static void mdm_power_on_common(struct mdm_modem_drv *mdm_drv)
 
 static void debug_state_changed(int value)
 {
-	mdm_debug_on = value;
+	mdm_debug_mask = value;
 }
 
 static void mdm_status_changed(struct mdm_modem_drv *mdm_drv, int value)
@@ -242,6 +253,7 @@ static void mdm_status_changed(struct mdm_modem_drv *mdm_drv, int value)
 static struct mdm_ops mdm_cb = {
 	.power_on_mdm_cb = mdm_power_on_common,
 	.reset_mdm_cb = mdm_power_on_common,
+	.atomic_reset_mdm_cb = mdm_atomic_soft_reset,
 	.power_down_mdm_cb = mdm_power_down_common,
 	.debug_state_changed_cb = debug_state_changed,
 	.status_cb = mdm_status_changed,

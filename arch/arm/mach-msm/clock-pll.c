@@ -121,7 +121,6 @@ static enum handoff pll_vote_clk_handoff(struct clk *c)
 struct clk_ops clk_ops_pll_vote = {
 	.enable = pll_vote_clk_enable,
 	.disable = pll_vote_clk_disable,
-	.auto_off = pll_vote_clk_disable,
 	.is_enabled = pll_vote_clk_is_enabled,
 	.get_parent = pll_vote_clk_get_parent,
 	.handoff = pll_vote_clk_handoff,
@@ -248,7 +247,7 @@ int sr_pll_clk_enable(struct clk *c)
 
 #define PLL_LOCKED_BIT BIT(16)
 
-int copper_pll_clk_enable(struct clk *c)
+int msm8974_pll_clk_enable(struct clk *c)
 {
 	unsigned long flags;
 	struct pll_clk *pll = to_pll_clk(c);
@@ -300,7 +299,6 @@ out:
 struct clk_ops clk_ops_local_pll = {
 	.enable = local_pll_clk_enable,
 	.disable = local_pll_clk_disable,
-	.auto_off = local_pll_clk_disable,
 	.handoff = local_pll_clk_handoff,
 	.get_parent = local_pll_clk_get_parent,
 };
@@ -321,6 +319,7 @@ static struct pll_rate pll_l_rate[] = {
 	{60, 1152000000},
 	{62, 1200000000},
 	{63, 1209600000},
+	{73, 1401600000},
 	{0, 0},
 };
 

@@ -691,8 +691,7 @@ static int ehci_init(struct usb_hcd *hcd)
 	hw->hw_alt_next = QTD_NEXT(ehci, ehci->async->dummy->qtd_dma);
 
 	/* clear interrupt enables, set irq latency */
-	if (ehci->max_log2_irq_thresh)
-		log2_irq_thresh = ehci->max_log2_irq_thresh;
+	log2_irq_thresh = ehci->log2_irq_thresh;
 
 	if (log2_irq_thresh < 0 || log2_irq_thresh > 6)
 		log2_irq_thresh = 0;
@@ -977,6 +976,9 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 	/* PCI errors [4.15.2.4] */
 	if (unlikely ((status & STS_FATAL) != 0)) {
 		ehci_err(ehci, "fatal error\n");
+		if (hcd->driver->dump_regs)
+			hcd->driver->dump_regs(hcd);
+		panic("System error\n");
 		dbg_cmd(ehci, "fatal", cmd);
 		dbg_status(ehci, "fatal", status);
 		ehci_halt(ehci);

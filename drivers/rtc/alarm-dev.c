@@ -57,7 +57,7 @@ static uint32_t alarm_enabled;
 static uint32_t wait_pending;
 
 static struct alarm alarms[ANDROID_ALARM_TYPE_COUNT];
-
+int asus_rtc_set = 0;
 static long alarm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int rv = 0;
@@ -158,6 +158,14 @@ from_old_alarm_set:
 		alarm_pending |= ANDROID_ALARM_TIME_CHANGE_MASK;
 		wake_up(&alarm_wait_queue);
 		spin_unlock_irqrestore(&alarm_slock, flags);
+        { // jack added to get correct time for last shutdown log +++++++++++
+            void get_last_shutdown_log(void);
+            if(!asus_rtc_set)
+            {  
+                asus_rtc_set = 1;
+                get_last_shutdown_log();       
+            }
+        }// jack added to get correct time for last shutdown log ------------
 		if (rv < 0)
 			goto err1;
 		break;

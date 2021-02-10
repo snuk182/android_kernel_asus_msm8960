@@ -105,6 +105,228 @@ static struct data_bridge	*__dev[MAX_BRIDGE_DEVICES];
 /* counter used for indexing data bridge devices */
 static int	ch_id;
 
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+#include <linux/tty.h>
+#include <linux/tty_driver.h>
+#include <linux/tty_flip.h>
+
+#define DUN_DATA_ID 0
+#define PADING_TTY_SIZE (16)
+static bool s_is_bridge_init = false;
+static bool is_open_asus = false;
+static bool is_open_usb = false;
+struct tty_struct *gdun_tty = NULL;
+static struct tty_driver *gdun_tty_driver = NULL;
+static struct device *gdun_tty_dev = NULL;
+
+static bool is_bridge_open(void);
+static void data_bridge_close_asus(unsigned int id);
+static int data_bridge_write_asus(unsigned int id, struct sk_buff *skb);
+static void data_bridge_write_cb_asus(struct urb *urb);
+static void data_bridge_process_rx_asus(struct work_struct *work);
+static int data_bridge_open_asus(unsigned int ch_id);
+extern void ctrl_bridge_close_asus(unsigned int id);
+extern int ctrl_bridge_open_asus(unsigned int ch_id);
+
+static int gdun_tty_open(struct tty_struct *tty, struct file *f)
+{
+	int rc = 0;
+
+	pr_debug("%s+++\n", __func__);
+	if (gdun_tty != NULL)
+	{
+		pr_err("%s: already opened\n", __func__);
+		return -EBUSY;
+	}
+
+	if (!s_is_bridge_init) {
+		pr_err("%s: bridge isn't initalize\n", __func__);
+		return -ENODEV;
+	}
+	rc = ctrl_bridge_open_asus(DUN_DATA_ID);
+	if (rc < 0) {
+		return rc;
+	}
+	rc = data_bridge_open_asus(DUN_DATA_ID);
+	if (rc < 0) {
+		ctrl_bridge_close_asus(DUN_DATA_ID);
+		return rc;
+	}
+	pr_debug("%s: open asus %d usb %d\n", __func__, is_open_asus, is_open_usb);
+	gdun_tty = tty;
+	return rc;
+}
+
+static void gdun_tty_close(struct tty_struct *tty, struct file *f)
+{
+	is_open_asus = false;
+	gdun_tty = NULL;
+	pr_debug("%s: open asus %d usb %d\n", __func__, is_open_asus, is_open_usb);
+	if (!is_bridge_open()) {
+		data_bridge_close_asus(DUN_DATA_ID);
+		ctrl_bridge_close_asus(DUN_DATA_ID);
+	}
+
+	return;
+}
+
+static int gdun_tty_write(struct tty_struct *tty, const unsigned char *buf, int len)
+{
+	int rc;
+	struct sk_buff *skb;
+
+	if (!s_is_bridge_init) {
+		pr_err("%s: bridge isn't initalize\n", __func__);
+		return -ENODEV;
+	}
+	skb = alloc_skb(len + PADING_TTY_SIZE, GFP_ATOMIC);
+	if (!skb) {
+		pr_err("%s: alloc_skb error\n", __func__);
+		return -ENOMEM;
+	}
+
+	memcpy(skb_put(skb, len), buf, len);
+
+	rc = data_bridge_write_asus(DUN_DATA_ID, skb);
+	if (rc < 0) {
+		return 0;
+	}
+	return len;
+}
+
+static int gdun_tty_write_room(struct tty_struct *tty)
+{
+	return 8192;
+}
+
+static int gdun_tty_chars_in_buffer(struct tty_struct *tty)
+{
+	return 8192;
+}
+
+static void gdun_tty_unthrottle(struct tty_struct *tty)
+{
+	pr_debug("%s: not support\n", __func__);
+	return;
+}
+
+static int gdun_tty_tiocmget(struct tty_struct *tty)
+{
+	pr_debug("%s: not support\n", __func__);
+	return 0;
+}
+
+static int gdun_tty_tiocmset(struct tty_struct *tty, unsigned int set, unsigned int clear)
+{
+	pr_debug("%s: not support\n", __func__);
+	return 0;
+}
+
+static const struct tty_operations gdun_tty_ops = {
+	.open = gdun_tty_open,
+	.close = gdun_tty_close,
+	.write = gdun_tty_write,
+	.write_room = gdun_tty_write_room,
+	.chars_in_buffer = gdun_tty_chars_in_buffer,
+	.unthrottle = gdun_tty_unthrottle,
+	.tiocmget = gdun_tty_tiocmget,
+	.tiocmset = gdun_tty_tiocmset,
+};
+
+extern void ctrl_bridge_init_asus(void);
+
+int gdun_tty_setup(void)
+{
+	int ret;
+
+	if (gdun_tty_driver == NULL) {
+		gdun_tty_driver = alloc_tty_driver(1);
+		if (gdun_tty_driver == 0)
+			return -ENOMEM;
+
+		gdun_tty_driver->owner = THIS_MODULE;
+		gdun_tty_driver->driver_name = "gdun";
+		gdun_tty_driver->name = "gdun";
+		gdun_tty_driver->major = 0;
+		gdun_tty_driver->minor_start = 0;
+		gdun_tty_driver->type = TTY_DRIVER_TYPE_SERIAL;
+		gdun_tty_driver->subtype = SERIAL_TYPE_NORMAL;
+		gdun_tty_driver->init_termios = tty_std_termios;
+		gdun_tty_driver->init_termios.c_iflag = 0;
+		gdun_tty_driver->init_termios.c_oflag = 0;
+		gdun_tty_driver->init_termios.c_cflag = B38400 | CS8 | CREAD;
+		gdun_tty_driver->init_termios.c_lflag = 0;
+		gdun_tty_driver->flags = TTY_DRIVER_RESET_TERMIOS |
+			TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV;
+		tty_set_operations(gdun_tty_driver, &gdun_tty_ops);
+
+		ret = tty_register_driver(gdun_tty_driver);
+		if (ret) goto ERROR1;
+	}
+	else
+		pr_info("use old driver %p\n", gdun_tty_driver);
+
+	if (gdun_tty_dev == NULL) {
+		/* this should be dynamic */
+		gdun_tty_dev = tty_register_device(gdun_tty_driver, 0, 0);
+		if (IS_ERR(gdun_tty_dev))
+		{
+			ret = (int)gdun_tty_dev;
+			goto ERROR2;
+		}
+	}
+	else
+		pr_info("use old dev %p\n", gdun_tty_dev);
+	pr_info("%s /dev/gdun0\n", __func__);
+	return 0;
+
+
+ERROR2:
+	tty_unregister_driver(gdun_tty_driver);
+ERROR1:
+	put_tty_driver(gdun_tty_driver);
+
+	gdun_tty_dev = NULL;
+	gdun_tty_driver = NULL;
+	return ret;
+}
+
+static void gdun_tty_release(void)
+{
+	if (gdun_tty_dev != NULL) {
+		tty_unregister_device(gdun_tty_driver, 0);
+	}
+	if (gdun_tty_driver != NULL) {
+		tty_unregister_driver(gdun_tty_driver);
+		put_tty_driver(gdun_tty_driver);
+	}
+	gdun_tty_dev = NULL;
+	gdun_tty_driver = NULL;
+	pr_info("%s /dev/gdun0\n", __func__);
+}
+
+static int gdun_rx_string(struct sk_buff *skb)
+{
+	int avail = 0;
+	if (gdun_tty != NULL) {
+		unsigned char *ptr;
+
+		avail = tty_prepare_flip_string(gdun_tty, &ptr, skb->len);
+
+		if (avail <= 0) {
+			pr_err("tty_prepare_flip_string err\n");
+		} else {
+			memcpy(ptr, skb->data, avail);
+			tty_flip_buffer_push(gdun_tty);
+		}
+	}
+	return avail;
+}
+#else
+static const bool is_open_asus = false;
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 static unsigned int get_timestamp(void);
 static void dbg_timestamp(char *, struct sk_buff *);
 static int submit_rx_urb(struct data_bridge *dev, struct urb *urb,
@@ -150,6 +372,14 @@ static void data_bridge_process_rx(struct work_struct *work)
 
 	struct bridge		*brdg = dev->brdg;
 
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	if (is_open_asus) {
+		data_bridge_process_rx_asus(work);
+		return;
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	if (!brdg || !brdg->ops.send_pkt || rx_halted(dev))
 		return;
 
@@ -312,6 +542,15 @@ int data_bridge_open(struct bridge *brdg)
 	dev_dbg(&dev->intf->dev, "%s: dev:%p\n", __func__, dev);
 
 	dev->brdg = brdg;
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	if (is_bridge_open()) {
+		is_open_usb = true;
+		return 0;
+	}
+	is_open_usb = true;
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	dev->err = 0;
 	atomic_set(&dev->pending_txurbs, 0);
 	dev->to_host = 0;
@@ -342,7 +581,15 @@ void data_bridge_close(unsigned int id)
 		return;
 
 	dev_dbg(&dev->intf->dev, "%s:\n", __func__);
-
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	is_open_usb = false;
+	if (is_bridge_open()) {
+		dev->brdg = NULL;
+		return;
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	usb_unlink_anchored_urbs(&dev->tx_active);
 	usb_unlink_anchored_urbs(&dev->rx_active);
 	usb_unlink_anchored_urbs(&dev->delayed);
@@ -370,7 +617,7 @@ static void defer_kevent(struct work_struct *work)
 
 		status = usb_autopm_get_interface(dev->intf);
 		if (status < 0) {
-			dev_err(&dev->intf->dev,
+			dev_dbg(&dev->intf->dev,
 				"can't acquire interface, status %d\n", status);
 			return;
 		}
@@ -389,7 +636,7 @@ static void defer_kevent(struct work_struct *work)
 
 		status = usb_autopm_get_interface(dev->intf);
 		if (status < 0) {
-			dev_err(&dev->intf->dev,
+			dev_dbg(&dev->intf->dev,
 				"can't acquire interface, status %d\n", status);
 			return;
 		}
@@ -401,7 +648,7 @@ static void defer_kevent(struct work_struct *work)
 				"can't clear rx halt, status %d\n", status);
 		else {
 			clear_bit(RX_HALT, &dev->flags);
-			if (dev->brdg)
+			if (dev->brdg || is_open_asus)
 				queue_work(dev->wq, &dev->process_rx_w);
 		}
 	}
@@ -478,7 +725,7 @@ int data_bridge_write(unsigned int id, struct sk_buff *skb)
 
 	result = usb_autopm_get_interface(dev->intf);
 	if (result < 0) {
-		dev_err(&dev->intf->dev, "%s: resume failure\n", __func__);
+		dev_dbg(&dev->intf->dev, "%s: resume failure\n", __func__);
 		goto pm_error;
 	}
 
@@ -567,7 +814,7 @@ static int data_bridge_resume(struct data_bridge *dev)
 		dev->txurb_drp_cnt--;
 	}
 
-	if (dev->brdg)
+	if (dev->brdg || is_open_asus)
 		queue_work(dev->wq, &dev->process_rx_w);
 
 	return 0;
@@ -961,7 +1208,19 @@ bridge_probe(struct usb_interface *iface, const struct usb_device_id *id)
 		dev_err(&iface->dev, "ctrl_bridge_probe failed %d\n", status);
 		goto free_data_bridge;
 	}
-
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	pr_info("%s: bridge probe success\n", __func__);
+	if (ch_id == DUN_DATA_ID) {
+		is_open_asus = false;
+		is_open_usb = false;
+		gdun_tty = NULL;
+		ctrl_bridge_init_asus();
+		s_is_bridge_init = true;
+		pr_info("%s: gdun connect\n", __func__);
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	ch_id++;
 
 	return 0;
@@ -990,10 +1249,10 @@ static void bridge_disconnect(struct usb_interface *intf)
 	}
 
 	ch_id--;
-	ctrl_bridge_disconnect(ch_id);
+	ctrl_bridge_disconnect(dev->id);
 	platform_device_unregister(dev->pdev);
 	usb_set_intfdata(intf, NULL);
-	__dev[ch_id] = NULL;
+	__dev[dev->id] = NULL;
 
 	cancel_work_sync(&dev->process_rx_w);
 	cancel_work_sync(&dev->kevent);
@@ -1010,7 +1269,240 @@ static void bridge_disconnect(struct usb_interface *intf)
 
 	usb_put_dev(dev->udev);
 	kfree(dev);
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	if (ch_id == DUN_DATA_ID) {
+		s_is_bridge_init = false;
+		pr_info("%s: gdun disconnect\n", __func__);
+	}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 }
+
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+static void data_bridge_write_cb_asus(struct urb *urb)
+{
+	struct sk_buff		*skb = urb->context;
+	struct timestamp_info	*info = (struct timestamp_info *)skb->cb;
+	struct data_bridge	*dev = info->dev;
+	int			pending;
+
+	pr_debug("%s: dev:%p\n", __func__, dev);
+
+	switch (urb->status) {
+	case 0: /*success*/
+		dbg_timestamp("UL", skb);
+		break;
+	case -EPROTO:
+		dev->err = -EPROTO;
+		break;
+	case -EPIPE:
+		set_bit(TX_HALT, &dev->flags);
+		dev_err(&dev->intf->dev, "%s: epout halted\n", __func__);
+		schedule_work(&dev->kevent);
+		/* FALLTHROUGH */
+	case -ESHUTDOWN:
+	case -ENOENT: /* suspended */
+	case -ECONNRESET: /* unplug */
+	case -EOVERFLOW: /*babble error*/
+		/* FALLTHROUGH */
+	default:
+		pr_debug_ratelimited("%s: non zero urb status = %d\n",
+					__func__, urb->status);
+	}
+
+	usb_free_urb(urb);
+	dev_kfree_skb_any(skb);
+
+	pending = atomic_dec_return(&dev->pending_txurbs);
+
+	usb_autopm_put_interface_async(dev->intf);
+}
+
+static void data_bridge_process_rx_asus(struct work_struct *work)
+{
+	int			retval;
+	unsigned long		flags;
+	struct urb		*rx_idle;
+	struct sk_buff		*skb;
+	struct timestamp_info	*info;
+	struct data_bridge	*dev =
+		container_of(work, struct data_bridge, process_rx_w);
+
+	if (rx_halted(dev))
+		return;
+
+	while ((skb = skb_dequeue(&dev->rx_done))) {
+		dev->to_host++;
+		info = (struct timestamp_info *)skb->cb;
+		info->rx_done_sent = get_timestamp();
+		/* hand off sk_buff to client,they'll need to free it */
+		retval = gdun_rx_string(skb);
+		if (retval < 0) {
+			dev->rx_throttled_cnt++;
+			break;
+		}
+	}
+
+	spin_lock_irqsave(&dev->rx_done.lock, flags);
+	while (!list_empty(&dev->rx_idle)) {
+		if (dev->rx_done.qlen > stop_submit_urb_limit)
+			break;
+
+		rx_idle = list_first_entry(&dev->rx_idle, struct urb, urb_list);
+		list_del(&rx_idle->urb_list);
+		spin_unlock_irqrestore(&dev->rx_done.lock, flags);
+		retval = submit_rx_urb(dev, rx_idle, GFP_KERNEL);
+		spin_lock_irqsave(&dev->rx_done.lock, flags);
+		if (retval) {
+			list_add_tail(&rx_idle->urb_list, &dev->rx_idle);
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&dev->rx_done.lock, flags);
+}
+
+static int data_bridge_write_asus(unsigned int id, struct sk_buff *skb)
+{
+	int			result;
+	int			size = skb->len;
+	int			pending;
+	struct urb		*txurb;
+	struct timestamp_info	*info = (struct timestamp_info *)skb->cb;
+	struct data_bridge	*dev = __dev[id];
+
+	if (!dev || dev->err || !usb_get_intfdata(dev->intf))
+		return -ENODEV;
+
+	dev_dbg(&dev->intf->dev, "%s: write (%d bytes)\n", __func__, skb->len);
+
+	result = usb_autopm_get_interface(dev->intf);
+	if (result < 0) {
+		dev_err(&dev->intf->dev, "%s: resume failure\n", __func__);
+		goto pm_error;
+	}
+
+	txurb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!txurb) {
+		dev_err(&dev->intf->dev, "%s: error allocating read urb\n",
+			__func__);
+		result = -ENOMEM;
+		goto error;
+	}
+
+	/* store dev pointer in skb */
+	info->dev = dev;
+	info->tx_queued = get_timestamp();
+
+	usb_fill_bulk_urb(txurb, dev->udev, dev->bulk_out,
+			skb->data, skb->len, data_bridge_write_cb_asus, skb);
+	
+	txurb->transfer_flags |= URB_ZERO_PACKET;
+
+	if (test_bit(SUSPENDED, &dev->flags)) {
+		usb_anchor_urb(txurb, &dev->delayed);
+		goto free_urb;
+	}
+
+	pending = atomic_inc_return(&dev->pending_txurbs);
+	usb_anchor_urb(txurb, &dev->tx_active);
+
+	if (atomic_read(&dev->pending_txurbs) % tx_urb_mult)
+		txurb->transfer_flags |= URB_NO_INTERRUPT;
+
+	result = usb_submit_urb(txurb, GFP_KERNEL);
+	if (result < 0) {
+		usb_unanchor_urb(txurb);
+		atomic_dec(&dev->pending_txurbs);
+		dev_err(&dev->intf->dev, "%s: submit URB error %d\n",
+			__func__, result);
+		goto free_urb;
+	}
+
+	dev->to_modem++;
+	dev_dbg(&dev->intf->dev, "%s: pending_txurbs: %u\n", __func__, pending);
+
+	return size;
+
+free_urb:
+	usb_free_urb(txurb);
+error:
+	dev->txurb_drp_cnt++;
+	usb_autopm_put_interface(dev->intf);
+pm_error:
+	return result;
+}
+
+static void data_bridge_close_asus(unsigned int id)
+{
+	struct data_bridge	*dev;
+	struct sk_buff		*skb;
+	unsigned long		flags;
+
+	if (id >= MAX_BRIDGE_DEVICES)
+		return;
+
+	dev  = __dev[id];
+	if (!dev)
+		return;
+
+	dev_dbg(&dev->intf->dev, "%s:\n", __func__);
+	is_open_asus = false;
+	if (!is_bridge_open()) {
+		usb_unlink_anchored_urbs(&dev->tx_active);
+		usb_unlink_anchored_urbs(&dev->rx_active);
+		usb_unlink_anchored_urbs(&dev->delayed);
+
+		spin_lock_irqsave(&dev->rx_done.lock, flags);
+		while ((skb = __skb_dequeue(&dev->rx_done)))
+			dev_kfree_skb_any(skb);
+		spin_unlock_irqrestore(&dev->rx_done.lock, flags);
+	}
+}
+
+static int data_bridge_open_asus(unsigned int ch_id)
+{
+	struct data_bridge	*dev;
+
+	pr_debug("%s+++\n", __func__);
+
+	dev = __dev[ch_id];
+	if (!dev) {
+		err("dev is null\n");
+		return -ENODEV;
+	}
+
+	dev_dbg(&dev->udev->dev, "%s: dev:%p\n", __func__, dev);
+	if (is_bridge_open()) {
+		is_open_asus = true;
+		return 0;
+	}
+
+	dev->brdg = NULL;
+	dev->err = 0;
+	atomic_set(&dev->pending_txurbs, 0);
+	dev->to_host = 0;
+	dev->to_modem = 0;
+	dev->txurb_drp_cnt = 0;
+	dev->tx_throttled_cnt = 0;
+	dev->tx_unthrottled_cnt = 0;
+	dev->rx_throttled_cnt = 0;
+	dev->rx_unthrottled_cnt = 0;
+
+	is_open_asus = true;
+
+	queue_work(dev->wq, &dev->process_rx_w);
+
+	return 0;
+}
+
+static bool is_bridge_open(void)
+{
+	return (is_open_asus || is_open_usb);
+}
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 
 /*bit position represents interface number*/
 #define PID9001_IFACE_MASK	0xC
@@ -1064,12 +1556,21 @@ static int __init bridge_init(void)
 	}
 
 	data_bridge_debugfs_init();
-
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	gdun_tty_setup();
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	return 0;
 }
 
 static void __exit bridge_exit(void)
 {
+// ASUS_BSP+++ Wenli "tty device for AT command"
+#ifndef DISABLE_ASUS_DUN
+	gdun_tty_release();
+#endif
+// ASUS_BSP--- Wenli "tty device for AT command"
 	data_bridge_debugfs_exit();
 	destroy_workqueue(bridge_wq);
 	usb_deregister(&bridge_driver);

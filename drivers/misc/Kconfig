@@ -643,6 +643,12 @@ config QFP_FUSE
 	  to the fuse block. Currently this is supported only
 	  on FSM targets.
 
+config HALL_SENSOR
+	bool "Hall sensor device driver"
+	default n
+	---help---
+	Say Y here to enable Hall sensor support
+
 config USB_HSIC_SMSC_HUB
 	tristate "Support for HSIC based MSM on-chip SMSC3503 HUB"
 	depends on USB_EHCI_MSM_HSIC
@@ -653,6 +659,12 @@ config USB_HSIC_SMSC_HUB
 	  This adds support for connecting devices like mouse in HSIC
 	  Host mode.
 
+config CHARGER_MODE
+	bool "Charger mode support"
+	default n
+	---help---
+	Say Y here to enable charger mode support
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -661,4 +673,6 @@ source "drivers/misc/ti-st/Kconfig"
 source "drivers/misc/lis3lv02d/Kconfig"
 source "drivers/misc/carma/Kconfig"
 source "drivers/misc/altera-stapl/Kconfig"
+source "drivers/misc/mpu3050/Kconfig"
+source "drivers/misc/mpu6050/Kconfig"
 endmenu

@@ -64,6 +64,31 @@ int msm_gpiomux_write(unsigned gpio, enum msm_gpiomux_setting which,
 }
 EXPORT_SYMBOL(msm_gpiomux_write);
 
+//++ Ledger
+int msm_gpiomux_write_pm(unsigned gpio,struct gpiomux_setting *setting)
+{
+    unsigned long irq_flags;
+    int status = 0;
+
+	if (!msm_gpiomux_recs)
+		return -EFAULT;
+
+	if (gpio >= msm_gpiomux_ngpio)
+		return -EINVAL;
+
+	spin_lock_irqsave(&gpiomux_lock, irq_flags);
+
+	if (setting) {
+		__msm_gpiomux_write(gpio, *setting);
+		printk(DBGMSK_GIO_G2"msm_gpiomux_write_pm gpio%d func:%x drv:%x pull:%x dir:%x\n",gpio,setting->func,setting->drv,setting->pull,setting->dir); 
+	}
+
+	spin_unlock_irqrestore(&gpiomux_lock, irq_flags);
+	return status;
+}
+EXPORT_SYMBOL(msm_gpiomux_write_pm);
+//-- Ledger
+
 int msm_gpiomux_get(unsigned gpio)
 {
 	struct msm_gpiomux_rec *rec = msm_gpiomux_recs + gpio;

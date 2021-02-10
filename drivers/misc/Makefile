@@ -71,3 +71,6 @@ obj-$(CONFIG_MSM_MEMORY_LOW_POWER_MODE_SUSPEND_DEEP_POWER_DOWN) \
 obj-$(CONFIG_PMIC8058_XOADC) += pmic8058-xoadc.o
 obj-$(CONFIG_QSEECOM) += qseecom.o
 obj-$(CONFIG_QFP_FUSE) += qfp_fuse.o
+obj-$(CONFIG_HALL_SENSOR) += hall_sensor.o
+obj-$(CONFIG_MPU_SENSORS_MPU3050)	+= mpu3050/
+obj-$(CONFIG_MPU_SENSORS_MPU6050B1)	+= mpu6050/

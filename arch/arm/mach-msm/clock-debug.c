@@ -166,19 +166,47 @@ int __init clock_debug_init(struct clock_init_data *data)
 	return 0;
 }
 
-
-static int clock_debug_print_clock(struct clk *c)
+//[+++]Add for those clocks which block CXO or PXO
+static int clock_debug_print_clock_Block_XO(struct clk *c)
 {
 	size_t ln = 0;
 	char s[128];
+	struct clk *d = NULL;
+	
+	if (!c || !c->count)
+		return 0;
+	
+	d=clk_get_parent(c);
+	if (d == NULL)
+		return 0;
+		
+	ln += snprintf(s, sizeof(s), "[PM][WARNING] %s", c->dbg_name);
+	while (ln < sizeof(s) && (c = clk_get_parent(c)))
+		ln += snprintf(s + ln, sizeof(s) - ln, " -> %s", c->dbg_name);
+	pr_info("%s\n", s);
+	return 1;
+}
+//[---]Add for those clocks which block CXO or PXO
+
+static int clock_debug_print_clock(struct clk *c)
+{
+	char *start = "";
 
 	if (!c || !c->count)
 		return 0;
 
-	ln += snprintf(s, sizeof(s), "\t%s", c->dbg_name);
-	while (ln < sizeof(s) && (c = clk_get_parent(c)))
-		ln += snprintf(s + ln, sizeof(s) - ln, " -> %s", c->dbg_name);
-	pr_info("%s\n", s);
+	pr_info("\t");
+	do {
+		if (c->vdd_class)
+			pr_cont("%s%s [%ld, %lu]", start, c->dbg_name, c->rate,
+				c->vdd_class->cur_level);
+		else
+			pr_cont("%s%s [%ld]", start, c->dbg_name, c->rate);
+		start = " -> ";
+	} while ((c = clk_get_parent(c)));
+
+	pr_cont("\n");
+
 	return 1;
 }
 
@@ -186,7 +214,17 @@ void clock_debug_print_enabled(void)
 {
 	unsigned i;
 	int cnt = 0;
+	int cnt1=0;
 
+	//[+++]Print the clocks which block CXO/PXO
+	for (i = 0; i < num_msm_clocks; i++)
+		cnt1 += clock_debug_print_clock_Block_XO(msm_clocks[i].clk);
+	if (cnt1)
+		pr_info("[PM]Block PXO/CXO clock count: %d\n", cnt1);
+	else
+		pr_info("[PM]No clocks Block PXO/CXO\n");
+	//[---]Print the clocks which block CXO/PXO
+	
 	if (likely(!debug_suspend))
 		return;
 

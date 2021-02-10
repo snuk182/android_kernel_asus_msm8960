@@ -305,6 +305,8 @@ struct mmc_card {
 	unsigned int    nr_parts;
 
 	struct mmc_wr_pack_stats wr_pack_stats; /* packed commands stats*/
+
+	bool fua_forbidden;
 };
 
 /*

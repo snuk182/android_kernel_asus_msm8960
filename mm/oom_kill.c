@@ -43,7 +43,7 @@ int sysctl_panic_on_oom;
 int sysctl_oom_kill_allocating_task;
 int sysctl_oom_dump_tasks = 1;
 static DEFINE_SPINLOCK(zone_scan_lock);
-
+extern void pet_watchdog(void);
 /*
  * compare_swap_oom_score_adj() - compare and swap current's oom_score_adj
  * @old_val: old oom_score_adj for compare
@@ -449,6 +449,8 @@ static void oom_kill_process(struct task_struct *p, gfp_t gfp_mask, int order,
 	static DEFINE_RATELIMIT_STATE(oom_rs, DEFAULT_RATELIMIT_INTERVAL,
 					      DEFAULT_RATELIMIT_BURST);
 
+	pet_watchdog();
+	
 	/*
 	 * If the task is already exiting, don't alarm the sysadmin or kill
 	 * its children or threads, just set TIF_MEMDIE so it can die quickly

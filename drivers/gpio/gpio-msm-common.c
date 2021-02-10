@@ -31,11 +31,135 @@
 #include <mach/mpm.h>
 #include "gpio-msm-common.h"
 
+//++Ledger
+#include "linux/console.h"
+int gpio_irq_cnt, gpio_resume_irq[]={};
+//--Ledger
+
+static struct gpiomux_setting gsbi[] = {
+        /* Active state */
+        {
+                .func = GPIOMUX_FUNC_1,
+                .drv = GPIOMUX_DRV_8MA,
+                .pull = GPIOMUX_PULL_NONE,
+        },
+        /* Suspended state */
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_NONE,
+                .dir = GPIOMUX_OUT_LOW,	
+        },
+        /* Suspended state */
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_NONE,
+                .dir = GPIOMUX_OUT_HIGH,	
+	},
+        //UART_RXD_DBG
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_DOWN,
+                .dir = GPIOMUX_IN,
+        },
+};
+static struct gpiomux_setting gen[] = {
+        /* Active state */
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_NONE,
+                .dir = GPIOMUX_IN,
+        },
+        /* Suspended state */
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_DOWN,
+                .dir = GPIOMUX_IN,
+        },
+        /*gen output low-2*/
+        {
+                .func = GPIOMUX_FUNC_GPIO,
+                .drv = GPIOMUX_DRV_2MA,
+                .pull = GPIOMUX_PULL_NONE,
+                .dir = GPIOMUX_OUT_LOW, 
+        },
+
+};
+
+static struct msm_gpiomux_config gpiomux_configs[] = {
+{
+                .gpio      = 22,	/* GSBI5 UART2 */
+                .settings = {
+                        [GPIOMUX_ACTIVE] = &gsbi[0],
+                        [GPIOMUX_SUSPENDED] = &gsbi[1],
+                },
+},
+//         {
+// 		.gpio      = 42,	/* UART_TXD_1WIRE */
+// 		.settings = {
+// 			[GPIOMUX_ACTIVE] = &gsbi[2],
+// 			[GPIOMUX_SUSPENDED] = &gsbi[2],
+// 		},
+//         },
+        {
+                .gpio      = 23,        /* GSBI5 UART2 */
+                .settings = {
+                        [GPIOMUX_ACTIVE] = &gsbi[0],
+                        [GPIOMUX_SUSPENDED] = &gsbi[3],
+                },
+        },
+        {
+                .gpio      = 93,        /* GP93_G_SEN_INT */
+                .settings = {
+                        [GPIOMUX_ACTIVE] = &gen[0],
+                        [GPIOMUX_SUSPENDED] = &gen[1],
+                },
+        },
+        {
+                .gpio      = 94,        // GP94_ECOMP_INT
+                .settings = {
+                        [GPIOMUX_ACTIVE] = &gen[0],
+                        [GPIOMUX_SUSPENDED] = &gen[1],
+                },
+        },
+        {
+                .gpio      = 47,        // GP47
+                .settings = {
+                        [GPIOMUX_ACTIVE] = &gen[2],
+                        [GPIOMUX_SUSPENDED] = &gen[2],
+                },
+        },
+};
+
+enum {
+        UART_TXD_DBG  = 0,
+//        UART_TXD_1WIR = 1,
+        UART_RXD_DBG  = 1,
+        G_SEN_INT = 2,
+        ECOMP_INT = 3,
+        REWRITE_NUM = 4,
+        HS_PATH_EN = 4
+};
+
+#ifdef CONFIG_GPIO_MSM_V3
+enum msm_tlmm_register {
+	SDC4_HDRV_PULL_CTL = 0x0, /* NOT USED */
+	SDC3_HDRV_PULL_CTL = 0x0, /* NOT USED */
+	SDC2_HDRV_PULL_CTL = 0x2048,
+	SDC1_HDRV_PULL_CTL = 0x2044,
+};
+#else
 enum msm_tlmm_register {
 	SDC4_HDRV_PULL_CTL = 0x20a0,
 	SDC3_HDRV_PULL_CTL = 0x20a4,
+	SDC2_HDRV_PULL_CTL = 0x0, /* NOT USED */
 	SDC1_HDRV_PULL_CTL = 0x20a0,
 };
+#endif
 
 struct tlmm_field_cfg {
 	enum msm_tlmm_register reg;
@@ -49,17 +173,24 @@ static const struct tlmm_field_cfg tlmm_hdrv_cfgs[] = {
 	{SDC3_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC3_CLK  */
 	{SDC3_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC3_CMD  */
 	{SDC3_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC3_DATA */
+	{SDC2_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC2_CLK  */
+	{SDC2_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC2_CMD  */
+	{SDC2_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC2_DATA */
 	{SDC1_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC1_CLK  */
 	{SDC1_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC1_CMD  */
 	{SDC1_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC1_DATA */
 };
 
 static const struct tlmm_field_cfg tlmm_pull_cfgs[] = {
+	{SDC4_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC4_CLK */
 	{SDC4_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC4_CMD  */
 	{SDC4_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC4_DATA */
 	{SDC3_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC3_CLK  */
 	{SDC3_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC3_CMD  */
 	{SDC3_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC3_DATA */
+	{SDC2_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC2_CLK  */
+	{SDC2_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC2_CMD  */
+	{SDC2_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC2_DATA */
 	{SDC1_HDRV_PULL_CTL, 13}, /* TLMM_PULL_SDC1_CLK  */
 	{SDC1_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC1_CMD  */
 	{SDC1_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC1_DATA */
@@ -79,6 +210,8 @@ struct irq_chip msm_gpio_irq_extn = {
 	.irq_disable	= NULL,
 };
 
+#define GPIO_CONFIG(gpio)         (MSM_TLMM_BASE + 0x1000 + (0x10 * (gpio)))
+#define GPIO_IN_OUT(gpio)         (MSM_TLMM_BASE + 0x1004 + (0x10 * (gpio)))
 /**
  * struct msm_gpio_dev: the MSM8660 SoC GPIO device structure
  *
@@ -153,7 +286,7 @@ static int msm_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 {
 	struct msm_gpio_dev *g_dev = to_msm_gpio_dev(chip);
 	struct irq_domain *domain = g_dev->domain;
-	return irq_linear_revmap(domain, offset - chip->base);
+	return irq_linear_revmap(domain, offset);
 }
 
 static inline int msm_irq_to_gpio(struct gpio_chip *chip, unsigned irq)
@@ -282,8 +415,11 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 
 	spin_lock_irqsave(&tlmm_lock, irq_flags);
 	__set_bit(gpio, msm_gpio.enabled_irqs);
-	__msm_gpio_set_intr_cfg_enable(gpio, 1);
-	mb();
+	if (!(__msm_gpio_get_intr_config(gpio) & 0x01)) {        //Ledger
+		__msm_gpio_set_intr_status(gpio);
+		__msm_gpio_set_intr_cfg_enable(gpio, 1);
+		mb();
+	}
 	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
 
 	if (msm_gpio_irq_extn.irq_mask)
@@ -393,7 +529,10 @@ static struct lock_class_key msm_gpio_lock_class;
 /* TODO: This should be a real platform_driver */
 static int __devinit msm_gpio_probe(void)
 {
-	int i, irq, ret;
+	int ret;
+#ifndef CONFIG_OF
+	int irq, i;
+#endif
 
 	spin_lock_init(&tlmm_lock);
 	bitmap_zero(msm_gpio.enabled_irqs, NR_MSM_GPIOS);
@@ -403,6 +542,7 @@ static int __devinit msm_gpio_probe(void)
 	if (ret < 0)
 		return ret;
 
+#ifndef CONFIG_OF
 	for (i = 0; i < msm_gpio.gpio_chip.ngpio; ++i) {
 		irq = msm_gpio_to_irq(&msm_gpio.gpio_chip, i);
 		irq_set_lockdep_class(irq, &msm_gpio_lock_class);
@@ -410,7 +550,7 @@ static int __devinit msm_gpio_probe(void)
 					 handle_level_irq);
 		set_irq_flags(irq, IRQF_VALID);
 	}
-
+#endif
 	ret = request_irq(TLMM_MSM_SUMMARY_IRQ, msm_summary_irq_handler,
 			IRQF_TRIGGER_HIGH, "msmgpio", NULL);
 	if (ret) {
@@ -434,6 +574,59 @@ static int __devexit msm_gpio_remove(void)
 }
 
 #ifdef CONFIG_PM
+static void msm_gpio_suspend_reconfig(void)
+{
+        int gpio_n,write_n;
+
+        printk(DBGMSK_GIO_G2"++%s\n",__func__);
+
+        if (isASUS_MSK_set(DBGMSK_GIO_G2))
+                for(gpio_n=0;gpio_n<ARRAY_SIZE(gpiomux_configs);gpio_n++)
+                {
+                        printk("GPIO%d CFG:%x, IO:%x \r\n" ,gpiomux_configs[gpio_n].gpio,__raw_readl(GPIO_CONFIG(gpiomux_configs[gpio_n].gpio)),__raw_readl(GPIO_IN_OUT(gpiomux_configs[gpio_n].gpio))); //Ledger
+                }
+
+        for (write_n=1;write_n<REWRITE_NUM;write_n++) {
+                if ( msm_gpiomux_write_pm(gpiomux_configs[write_n].gpio, gpiomux_configs[write_n].settings[GPIOMUX_SUSPENDED]))
+                        pr_err("%s: write gpio%d configs failure\n", __func__,gpiomux_configs[write_n].gpio);
+        }
+
+        if (g_A60K_hwID > A66_HW_ID_ER2)
+                if ( msm_gpiomux_write_pm(gpiomux_configs[HS_PATH_EN].gpio, gpiomux_configs[HS_PATH_EN].settings[GPIOMUX_SUSPENDED]))
+                        pr_err("%s: write gpio%d configs failure\n", __func__,gpiomux_configs[HS_PATH_EN].gpio);
+
+        if (console_suspend_enabled) {
+                if ( msm_gpiomux_write_pm(gpiomux_configs[UART_TXD_DBG].gpio,gpiomux_configs[UART_TXD_DBG].settings[GPIOMUX_SUSPENDED]))
+                pr_err("%s: write UART_TXD_DBG failure\n", __func__);
+        }
+
+        printk(DBGMSK_GIO_G2"--%s\n",__func__);
+
+}
+static void msm_gpio_resume_reconfig(void)
+{
+        int gpio_n,write_n;
+
+        printk(DBGMSK_GIO_G2"++%s\n",__func__);
+
+        if (console_suspend_enabled) {
+                if ( msm_gpiomux_write_pm(gpiomux_configs[UART_TXD_DBG].gpio,gpiomux_configs[UART_TXD_DBG].settings[GPIOMUX_ACTIVE]))
+                pr_err("%s: write UART_TXD_DBG failure\n", __func__);
+        }
+
+        for (write_n=1;write_n<REWRITE_NUM;write_n++) {
+                if ( msm_gpiomux_write_pm(gpiomux_configs[write_n].gpio, gpiomux_configs[write_n].settings[GPIOMUX_ACTIVE]))
+                        pr_err("%s: write gpio%d configs failure\n", __func__,gpiomux_configs[write_n].gpio);
+        }
+
+        if (isASUS_MSK_set(DBGMSK_GIO_G2))
+                for(gpio_n=0;gpio_n<ARRAY_SIZE(gpiomux_configs);gpio_n++)
+                {
+                        printk("GPIO%d CFG:%x, IO:%x \r\n" ,gpiomux_configs[gpio_n].gpio,__raw_readl(GPIO_CONFIG(gpiomux_configs[gpio_n].gpio)),__raw_readl(GPIO_IN_OUT(gpiomux_configs[gpio_n].gpio))); //Ledger
+                }
+        printk(DBGMSK_GIO_G2"--%s\n",__func__);
+}
+
 static int msm_gpio_suspend(void)
 {
 	unsigned long irq_flags;
@@ -445,6 +638,9 @@ static int msm_gpio_suspend(void)
 
 	for_each_set_bit(i, msm_gpio.wake_irqs, NR_MSM_GPIOS)
 		__msm_gpio_set_intr_cfg_enable(i, 1);
+
+	msm_gpio_suspend_reconfig();//Ledger
+
 	mb();
 	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
 	return 0;
@@ -455,6 +651,8 @@ void msm_gpio_show_resume_irq(void)
 	unsigned long irq_flags;
 	int i, irq, intstat;
 
+	gpio_irq_cnt=0;
+
 	if (!msm_show_resume_irq_mask)
 		return;
 
@@ -463,8 +661,11 @@ void msm_gpio_show_resume_irq(void)
 		intstat = __msm_gpio_get_intr_status(i);
 		if (intstat) {
 			irq = msm_gpio_to_irq(&msm_gpio.gpio_chip, i);
-			pr_warning("%s: %d triggered\n",
-				__func__, irq);
+			pr_warning("[PM]GPIO triggered: %d\n", irq-NR_MSM_IRQS);
+//++Ledger
+                        gpio_resume_irq[gpio_irq_cnt]=irq-NR_MSM_IRQS;
+                        gpio_irq_cnt++;
+//--Ledger
 		}
 	}
 	spin_unlock_irqrestore(&tlmm_lock, irq_flags);
@@ -475,6 +676,8 @@ static void msm_gpio_resume(void)
 	unsigned long irq_flags;
 	unsigned long i;
 
+
+	msm_gpio_resume_reconfig();	//Ledger
 	msm_gpio_show_resume_irq();
 
 	spin_lock_irqsave(&tlmm_lock, irq_flags);
@@ -593,14 +796,14 @@ static int msm_gpio_irq_domain_xlate(struct irq_domain *d,
 	return 0;
 }
 
-/*
- * TODO: this really should be doing all the things that msm_gpio_probe() does,
- * but since the msm_gpio_probe is called unconditionally for DT and non-DT
- * configs, we can't duplicate it here. This should be fixed.
- */
-int msm_gpio_irq_domain_map(struct irq_domain *d, unsigned int irq,
-			  irq_hw_number_t hwirq)
+static int msm_gpio_irq_domain_map(struct irq_domain *d, unsigned int irq,
+				   irq_hw_number_t hwirq)
 {
+	irq_set_lockdep_class(irq, &msm_gpio_lock_class);
+	irq_set_chip_and_handler(irq, &msm_gpio_irq_chip,
+			handle_level_irq);
+	set_irq_flags(irq, IRQF_VALID);
+
 	return 0;
 }
 

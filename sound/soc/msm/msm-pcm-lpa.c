@@ -116,6 +116,11 @@ static void event_handler(uint32_t opcode,
 				(prtd->out_head * prtd->pcm_count),
 				0, prtd->pcm_count);
 		}
+	//QC
+        if (runtime->status->state != SNDRV_PCM_STATE_RUNNING)
+           break;
+	//QC
+
 		pr_debug("%s:writing %d bytes of buffer to dsp 2\n",
 				__func__, prtd->pcm_count);
 
@@ -153,6 +158,10 @@ static void event_handler(uint32_t opcode,
 			if (runtime->status->hw_ptr >=
 				runtime->control->appl_ptr)
 				break;
+//QC
+            if (runtime->status->state != SNDRV_PCM_STATE_RUNNING)
+                break;
+//QC			
 			pr_debug("%s:writing %d bytes"
 				" of buffer to dsp\n",
 				__func__, prtd->pcm_count);
