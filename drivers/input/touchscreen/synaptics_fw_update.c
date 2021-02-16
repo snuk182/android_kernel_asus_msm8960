@@ -1460,7 +1460,7 @@ static ssize_t fwu_sysfs_store_image(struct file *data_file,
 		char *buf, loff_t pos, size_t count)
 {
 	if (count > (fwu->image_size - fwu->data_pos)) {
-	dev_err(fwu->rmi4_data->pdev->dev.parent,
+	dev_err(&fwu->rmi4_data->i2c_client->dev,
 			"%s: Not enough space in buffer\n",
 			__func__);
 	return -EINVAL;
