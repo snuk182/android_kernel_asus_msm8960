@@ -2,7 +2,6 @@
  *  linux/kernel/printk.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
- *  Copyright (C) 2012 Sony Mobile Communications AB.
  *
  * Modified to make sys_syslog() more flexible: added commands to
  * return the last 4k of kernel messages, regardless of whether
@@ -1873,24 +1872,6 @@ void resume_console(void)
 	console_unlock();
 }
 
-void panic_console(void)
-{
-	/**
-	 * Let's clear lock if it's locked, but only if console is suspended
-	 */
-	if (console_locked && console_suspended) {
-		zap_locks();
-		console_locked = 0;
-	}
-
-	/**
-	 * If suspended, resume console to allow the stored messages to
-	 * be written
-	 */
-	if (console_suspended)
-		resume_console();
-}
-
 static void __cpuinit console_flush(struct work_struct *work)
 {
 	console_lock();
@@ -2147,7 +2128,8 @@ skip:
 	 * flush, no worries.
 	 */
 	raw_spin_lock(&logbuf_lock);
-	retry = console_seq != log_next_seq;
+	if (console_seq != log_next_seq)
+		retry = 1;
 	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 	if (retry && console_trylock())

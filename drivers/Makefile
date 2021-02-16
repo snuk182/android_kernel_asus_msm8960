@@ -140,10 +140,9 @@ obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
 
 obj-$(CONFIG_CORESIGHT)		+= coresight/
 
-obj-$(CONFIG_SENSORS)		+= sensors/
-
 obj-$(CONFIG_ESOC)		+= esoc/
-obj-$(CONFIG_RMI4_BUS)		+= rmi4/
-obj-$(CONFIG_CYPRESS_CYTTSP4_BUS)	+= ttsp/
+
+#sensor_class
+obj-$(CONFIG_SENSORS)		+= sensors/
 
 obj-$(CONFIG_ANDROID)		+= android/

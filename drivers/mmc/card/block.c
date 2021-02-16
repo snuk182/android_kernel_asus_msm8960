@@ -3,7 +3,6 @@
  *
  * Copyright 2002 Hewlett-Packard Company
  * Copyright 2005-2008 Pierre Ossman
- * Copyright (C) 2013 Sony Mobile Communications AB.
  *
  * Use consistent with the GNU GPL is permitted,
  * provided that this copyright notice is
@@ -1242,7 +1241,7 @@ static int mmc_blk_issue_discard_rq(struct mmc_queue *mq, struct request *req)
 
 	if (mmc_can_discard(card))
 		arg = MMC_DISCARD_ARG;
-	else if (mmc_can_trim(card) && !(card->cid.manfid == 0x15 && card->ext_csd.rev <= 5))
+	else if (mmc_can_trim(card))
 		arg = MMC_TRIM_ARG;
 	else
 		arg = MMC_ERASE_ARG;
@@ -1359,13 +1358,10 @@ static int mmc_blk_issue_sanitize_rq(struct mmc_queue *mq,
 					EXT_CSD_SANITIZE_START, 1,
 					MMC_SANITIZE_REQ_TIMEOUT);
 
-	if (err) {
+	if (err)
 		pr_err("%s: %s - mmc_switch() with "
 		       "EXT_CSD_SANITIZE_START failed. err=%d\n",
 		       mmc_hostname(card->host), __func__, err);
-		if (err == -ETIMEDOUT)
-			mmc_interrupt_hpi(card);
-	}
 
 	pr_debug("%s: %s - SANITIZE COMPLETED\n", mmc_hostname(card->host),
 					     __func__);
@@ -2102,10 +2098,6 @@ void print_mmc_packing_stats(struct mmc_card *card)
 		pr_info("%s: %d times: rel write\n",
 			mmc_hostname(card->host),
 			card->wr_pack_stats.pack_stop_reason[REL_WRITE]);
-	if (card->wr_pack_stats.pack_stop_reason[NON_SEQ_WRITE])
-		pr_info("%s: %d times: non sequential write\n",
-			mmc_hostname(card->host),
-			card->wr_pack_stats.pack_stop_reason[NON_SEQ_WRITE]);
 	if (card->wr_pack_stats.pack_stop_reason[THRESHOLD])
 		pr_info("%s: %d times: Threshold\n",
 			mmc_hostname(card->host),
@@ -2176,12 +2168,6 @@ static u8 mmc_blk_prep_packed_list(struct mmc_queue *mq, struct request *req)
 		spin_unlock_irq(q->queue_lock);
 		if (!next) {
 			MMC_BLK_UPDATE_STOP_REASON(stats, EMPTY_QUEUE);
-			break;
-		}
-
-		if (blk_rq_pos(cur) + blk_rq_sectors(cur) != blk_rq_pos(next)) {
-			MMC_BLK_UPDATE_STOP_REASON(stats, NON_SEQ_WRITE);
-			put_back = 1;
 			break;
 		}
 

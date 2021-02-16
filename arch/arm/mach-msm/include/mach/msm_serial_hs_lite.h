@@ -38,7 +38,6 @@ struct msm_serial_hslite_platform_data {
 	bool set_uart_clk_zero;
 	bool use_pm;
 	int line;
-	int type;
 };
 
 #endif

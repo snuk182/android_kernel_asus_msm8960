@@ -6,7 +6,6 @@
 
 #include <net/sock.h>
 #include <linux/tracepoint.h>
-#include <net/tcp.h>
 
 TRACE_EVENT(sock_rcvqueue_full,
 
@@ -30,9 +29,6 @@ TRACE_EVENT(sock_rcvqueue_full,
 		__entry->rmem_alloc, __entry->truesize, __entry->sk_rcvbuf)
 );
 
-#define TCP_SYSCTL_INDEX(sk)	\
-	((sk->sk_protocol == IPPROTO_TCP) ? tcp_get_mem_size_pst(sk)*3 : 0)
-
 TRACE_EVENT(sock_exceed_buf_limit,
 
 	TP_PROTO(struct sock *sk, struct proto *prot, long allocated),
@@ -51,7 +47,7 @@ TRACE_EVENT(sock_exceed_buf_limit,
 		strncpy(__entry->name, prot->name, 32);
 		__entry->sysctl_mem = prot->sysctl_mem;
 		__entry->allocated = allocated;
-		__entry->sysctl_rmem = prot->sysctl_rmem[TCP_SYSCTL_INDEX(sk)];
+		__entry->sysctl_rmem = prot->sysctl_rmem[0];
 		__entry->rmem_alloc = atomic_read(&sk->sk_rmem_alloc);
 	),
 

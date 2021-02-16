@@ -319,7 +319,6 @@ struct msm_otg {
 #define A_CONN		15
 #define B_BUS_REQ	16
 #define MHL	        17
-#define VBUS_DROP_DET	18
 	unsigned long inputs;
 	struct work_struct sm_work;
 	bool sm_work_pending;
@@ -467,8 +466,5 @@ static inline int msm_ep_unconfig(struct usb_ep *ep)
 {
 	return -ENODEV;
 }
-
-void msm_otg_notify_vbus_drop(void);
-
 #endif
 #endif
